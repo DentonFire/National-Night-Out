@@ -46,7 +46,7 @@
             </form>
             <div class="mt-5 text-left bg-navy/40 border border-white/10 rounded-lg px-3.5 py-3 text-[11px] leading-snug text-blue-100/90">
                 <p class="font-black uppercase tracking-widest text-[10px] text-yellow mb-1">First time here?</p>
-                <p>Create an account with your city email. The verification email comes from <span class="font-semibold text-white break-all">noreply@dfd-national-night-out.firebaseapp.com</span>. It can take up to an hour and may land in Junk.</p>
+                <p>Create an account with your city email. The verification email comes from <span class="font-semibold text-white break-all">noreply@dfd-national-night-out.firebaseapp.com</span>. It can take up to 15 minutes and may land in Junk.</p>
                 <p class="mt-1.5">If the link says it expired or was already used, city email security opened it first. You're verified: just sign in.</p>
             </div>
             <div class="mt-6 flex items-center justify-center gap-2 opacity-70"><div id="secure-light" class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></div><p id="secure-text" class="text-[10px] font-mono tracking-widest uppercase text-yellow-200">Checking security...</p></div>
@@ -159,6 +159,12 @@
                 <section id="detail" class="detail-panel hidden absolute z-[65] bg-white shadow-2xl flex flex-col" aria-label="Party details"></section>
             </div>
         </main>
+    </div>
+
+    <!-- Drop target for removing a unit (shown while dragging a unit off a party) -->
+    <div id="unassign-zone" class="hidden fixed left-1/2 -translate-x-1/2 bottom-6 z-[19000] flex items-center gap-2 px-5 py-3 rounded-2xl bg-white text-red font-black text-[11px] uppercase tracking-widest shadow-floating border-2 border-dashed border-red">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M6 18L18 6M6 6l12 12"/></svg>
+        Drop here to unassign
     </div>
 
     <!-- Drag ghost -->

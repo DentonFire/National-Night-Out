@@ -74,13 +74,15 @@ function nowMinutes() {
 }
 const isLive = p => isEventNight() && nowMinutes() >= minutes(p.start) && nowMinutes() < minutes(p.end);
 
-function chipHTML(unitId, { party, draggable, title } = {}) {
+function chipHTML(unitId, { party, draggable, title, from } = {}) {
   const u = UNITS.get(unitId);
   if (!u) return "";
   const out = party && isOut(unitId, party);
   const mine = !isCommand() && unitId === S.myUnit;
   const t = title || `${TYPE_LABEL[u.type]} ${unitId}, Station ${u.station}${out ? `, out of district (home District ${u.station})` : ""}`;
-  return `<span class="chip${out ? " out" : ""}${mine ? " mine" : ""}${draggable ? " draggable" : ""}" data-unit="${unitId}" title="${esc(t)}" aria-label="${esc(t)}">${vehicleSVG(u.type)}${unitId}</span>`;
+  const focus = isCommand() && unitId === S.selectedUnit;
+  const hint = draggable ? (from ? ". Drag to another party to move it, or to the roster to remove it" : ". Drag onto a party to assign") : "";
+  return `<span class="chip${out ? " out" : ""}${mine ? " mine" : ""}${focus ? " focus" : ""}${draggable ? " draggable" : ""}" data-unit="${unitId}"${from ? ` data-from="${esc(from)}"` : ""} title="${esc(t + hint)}" aria-label="${esc(t)}">${vehicleSVG(u.type)}${unitId}</span>`;
 }
 const pdChip = () => `<span class="chip pd" title="Denton Police">${vehicleSVG("police")}PD</span>`;
 const mayorChip = () => `<span class="chip mayor sq" title="Mayor">${mayorSVG()}MAYOR</span>`;
@@ -320,9 +322,14 @@ function markerHTML(p) {
   const units = fdUnits(p);
   const need = units.length === 0;
   const visible = S.timeFilter === "all" || (S.timeFilter === "now" ? isLive(p) : p.start === S.timeFilter);
-  const unitDim = S.selectedUnit && !(p.units || []).includes(S.selectedUnit);
-  const cls = ["pm", need && "need", !visible || unitDim ? "dim" : "", S.selectedParty === p.id && "selected", isLive(p) && "live"].filter(Boolean).join(" ");
-  const chips = units.map(u => chipHTML(u, { party: p })).join("") + (p.police ? pdChip() : "") + (p.mayor ? mayorChip() : "");
+  const cmd = isCommand();
+  const has = S.selectedUnit && (p.units || []).includes(S.selectedUnit);
+  // Crews: picking a unit dims everything else. Command: picking a unit means "where does it go",
+  // so every party lights up as a drop target.
+  const unitDim = !cmd && S.selectedUnit && !has;
+  const target = cmd && S.selectedUnit && visible;
+  const cls = ["pm", need && "need", !visible || unitDim ? "dim" : "", target && "target", has && "has-unit", S.selectedParty === p.id && "selected", isLive(p) && "live"].filter(Boolean).join(" ");
+  const chips = units.map(u => chipHTML(u, { party: p, draggable: cmd, from: p.id })).join("") + (p.police ? pdChip() : "") + (p.mayor ? mayorChip() : "");
   return `<div class="${cls}" data-party="${esc(p.id)}">
     <div class="pm-pin" title="${esc(p.name)}">${pinSVG(timeColor(p.start))}<span class="t">${fmtTime(p.start)}</span><span class="pm-label">${esc(p.name)}</span></div>
     <div class="pm-units">${chips}</div>
@@ -422,7 +429,7 @@ function renderParties() {
   }
   pane.innerHTML = S.parties.map(p => {
     const units = fdUnits(p);
-    const chips = units.map(u => chipHTML(u, { party: p })).join("") + (p.police ? pdChip() : "") + (p.mayor ? mayorChip() : "");
+    const chips = units.map(u => chipHTML(u, { party: p, draggable: isCommand(), from: p.id })).join("") + (p.police ? pdChip() : "") + (p.mayor ? mayorChip() : "");
     return `<button class="party-row${S.selectedParty === p.id ? " selected" : ""}" data-party="${esc(p.id)}">
       <div class="flex items-center justify-between gap-2">
         <span class="time-tag"><i style="background:${timeColor(p.start)}"></i>${fmtRange(p)}</span>
@@ -692,7 +699,7 @@ function selectUnit(id) {
 
 function arm(unitId) {
   S.armedUnit = unitId;
-  $("arm-text").innerHTML = `Tap parties to add <b class="text-yellow">${unitId}</b>`;
+  $("arm-text").innerHTML = `Tap a highlighted party to add <b class="text-yellow">${unitId}</b>`;
   $("arm-banner").classList.remove("hidden");
 }
 function disarm() {
@@ -763,8 +770,10 @@ async function saveMovePin() {
 
 function wireDrag() {
   let drag = null;
-  const ghost = $("drag-ghost");
   let hot = null;
+  let swallowClick = false;
+  const ghost = $("drag-ghost");
+  const zone = $("unassign-zone");
 
   const setHot = el => {
     if (hot === el) return;
@@ -772,12 +781,26 @@ function wireDrag() {
     hot = el;
     hot?.classList.add("drop-hot");
   };
+  const inMarker = el => el.closest(".leaflet-marker-icon");
 
+  // Capture phase, so a drag that starts on a chip sitting on the map never reaches Leaflet
+  // (which would pan the map instead).
   document.addEventListener("pointerdown", e => {
-    const chip = e.target.closest("#units-pane .chip.draggable");
+    const chip = e.target.closest(".chip.draggable[data-unit]");
     if (!chip || !isCommand() || e.button > 0) return;
-    drag = { unit: chip.dataset.unit, chip, x: e.clientX, y: e.clientY, active: false, id: e.pointerId };
-  });
+    if (inMarker(chip)) e.stopPropagation();
+    drag = { unit: chip.dataset.unit, from: chip.dataset.from || null, chip, x: e.clientX, y: e.clientY, active: false, id: e.pointerId };
+  }, true);
+  for (const type of ["mousedown", "touchstart"]) {
+    document.addEventListener(type, e => {
+      const chip = e.target.closest?.(".chip.draggable[data-unit]");
+      if (chip && isCommand() && inMarker(chip)) e.stopPropagation();
+    }, { capture: true, passive: true });
+  }
+  // A finished drag must not also count as a click on whatever it was dropped near.
+  document.addEventListener("click", e => {
+    if (swallowClick) { e.stopPropagation(); e.preventDefault(); swallowClick = false; }
+  }, true);
 
   document.addEventListener("pointermove", e => {
     if (!drag || e.pointerId !== drag.id) return;
@@ -790,34 +813,60 @@ function wireDrag() {
       S.map.dragging.disable();
       S.selectedUnit = drag.unit;
       renderMarkers();
-      if (isMobile()) closeSidebar();
+      if (drag.from) zone.classList.remove("hidden");
+      if (isMobile() && !drag.from) closeSidebar();
     }
     e.preventDefault();
     ghost.style.left = `${e.clientX - 30}px`;
     ghost.style.top = `${e.clientY - 34}px`;
+    ghost.style.display = "none"; // look underneath the ghost
     const under = document.elementFromPoint(e.clientX, e.clientY);
-    setHot(under?.closest(".pm[data-party], .party-row[data-party]") || null);
+    ghost.style.display = "";
+    const party = under?.closest(".pm[data-party], .party-row[data-party]");
+    const unassign = drag.from && (under?.closest("#unassign-zone") || (!party && under?.closest("#sidebar")));
+    setHot(party || (unassign ? (under.closest("#unassign-zone") || $("sidebar")) : null));
     edgePan(e.clientX, e.clientY);
   }, { passive: false });
 
-  const end = e => {
+  const end = async e => {
     if (!drag || (e.pointerId !== undefined && e.pointerId !== drag.id)) return;
     const d = drag;
     drag = null;
     stopEdgePan();
     if (!d.active) {
-      // A tap, not a drag: same as tapping the row.
-      selectUnit(d.unit);
+      if (!d.from) selectUnit(d.unit); // tap on a roster chip; a tap on a map chip opens its party
       return;
     }
+    swallowClick = true;
+    setTimeout(() => (swallowClick = false), 400);
     d.chip.classList.remove("dragging-src");
     ghost.classList.add("hidden");
+    zone.classList.add("hidden");
     S.map.dragging.enable();
-    const target = hot?.dataset.party;
+    const dropped = hot;
     setHot(null);
     S.selectedUnit = null;
-    if (target && e.type === "pointerup") assign(target, d.unit);
     render();
+    if (e.type !== "pointerup" || !dropped) return;
+    const target = dropped.dataset.party;
+    try {
+      if (!target) {
+        await S.store.unassignUnit(d.from, d.unit);
+        toast(`${d.unit} removed from ${S.byId.get(d.from)?.name || "party"}`);
+      } else if (d.from && target !== d.from) {
+        const to = S.byId.get(target);
+        if ((to?.units || []).includes(d.unit)) {
+          await S.store.unassignUnit(d.from, d.unit);
+          toast(`${d.unit} was already at ${to.name}; removed the duplicate`);
+        } else {
+          await S.store.assignUnit(target, d.unit);
+          await S.store.unassignUnit(d.from, d.unit);
+          toast(`${d.unit} moved to ${to?.name}${to && isOut(d.unit, to) ? " (out of district)" : ""}`);
+        }
+      } else if (!d.from) {
+        assign(target, d.unit);
+      }
+    } catch (err) { fail(err); }
   };
   document.addEventListener("pointerup", end);
   document.addEventListener("pointercancel", end);

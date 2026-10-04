@@ -182,3 +182,13 @@ dialog.modal::backdrop { background: rgba(21, 42, 64, .7); backdrop-filter: blur
 /* QR button sits bottom-right above the map credits; zoom controls stack above it. */
 #qr-fab { bottom: calc(28px + env(safe-area-inset-bottom)); right: 12px; }
 .leaflet-bottom.leaflet-right .leaflet-control-zoom { margin-bottom: calc(88px + env(safe-area-inset-bottom)); margin-right: 12px; }
+
+/* ---- Command drag targets */
+.pm-units .chip.draggable, .party-row .chip.draggable { cursor: grab; touch-action: none; }
+.pm-units .chip.draggable:hover { box-shadow: 0 0 0 2px var(--navy), 0 2px 6px rgba(15, 23, 42, .3); }
+.pm.target .pm-pin { cursor: copy; }
+.pm.target .pm-pin::before { content: ""; position: absolute; left: 50%; top: 17px; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; border: 3px solid var(--yellow); background: rgba(249, 192, 49, .18); z-index: -1; }
+.pm.target.drop-hot .pm-pin::before { background: rgba(249, 192, 49, .45); border-color: var(--navy); }
+.chip.focus { box-shadow: 0 0 0 2px var(--navy), 0 0 0 4px var(--yellow); }
+#unassign-zone.drop-hot { background: var(--red); color: #fff; border-style: solid; }
+#sidebar.drop-hot { box-shadow: inset 0 0 0 3px var(--red); }
