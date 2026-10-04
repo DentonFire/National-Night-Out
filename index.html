@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#152a40">
+    <title>NNO Map | Denton Fire</title>
+    <link rel="icon" href="https://files.constantcontact.com/3720c3fd901/10017eb4-f7d2-424d-92ed-c1b5424b9869.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: { navy: { DEFAULT: '#152a40', light: '#1e3a58', dark: '#0e1d2d' }, red: { DEFAULT: '#bf2726' }, yellow: { DEFAULT: '#f9c031' } },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    boxShadow: { floating: '0 10px 30px -8px rgba(21,42,64,.35)' }
+                }
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body class="h-full overflow-hidden bg-slate-100 font-sans text-navy antialiased">
+
+    <!-- Sign in -->
+    <div id="login-overlay" class="fixed inset-0 z-[9999] flex items-center justify-center px-4">
+        <div class="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-2 scan-line-gradient animate-scan"></div>
+            <img src="https://files.constantcontact.com/3720c3fd901/10017eb4-f7d2-424d-92ed-c1b5424b9869.png" alt="Denton Fire Department" class="h-16 w-auto mx-auto mb-4 drop-shadow-lg object-contain">
+            <h2 id="auth-mode-title" class="text-2xl font-black text-white mb-1 uppercase tracking-tight">National Night Out</h2>
+            <p class="text-blue-200 text-xs mb-6 font-medium tracking-wide uppercase">Unit Assignment Map</p>
+            <form id="login-form" class="space-y-3" novalidate>
+                <label class="sr-only" for="email">City email</label>
+                <input type="email" id="email" autocomplete="username" placeholder="USER EMAIL" class="w-full bg-navy-light/50 border border-white/10 rounded-lg p-3 text-white placeholder-blue-300/60 text-center tracking-wider focus:outline-none focus:ring-2 focus:ring-yellow text-sm">
+                <label class="sr-only" for="password">Password</label>
+                <input type="password" id="password" autocomplete="current-password" placeholder="PASSWORD" class="w-full bg-navy-light/50 border border-white/10 rounded-lg p-3 text-white placeholder-blue-300/60 text-center tracking-wider focus:outline-none focus:ring-2 focus:ring-yellow text-sm">
+                <p id="login-msg" role="status" class="hidden font-bold text-xs py-1.5 px-2 rounded border"></p>
+                <button id="login-btn" type="submit" class="w-full bg-white text-navy font-black py-3 rounded-lg hover:bg-gray-100 active:scale-95 transition-all shadow-lg uppercase tracking-wider text-xs">Authenticate</button>
+                <button id="auth-toggle" type="button" class="text-gray-300 text-[10px] mt-4 hover:text-white uppercase tracking-widest">Need access? <span class="underline">Create Account</span></button>
+                <button id="forgot-btn" type="button" class="block mx-auto text-blue-300 text-[10px] mt-2 hover:text-blue-200 uppercase tracking-widest underline">Forgot Password?</button>
+            </form>
+            <div class="mt-6 flex items-center justify-center gap-2 opacity-70"><div id="secure-light" class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></div><p id="secure-text" class="text-[10px] font-mono tracking-widest uppercase text-yellow-200">Checking security...</p></div>
+        </div>
+    </div>
+
+    <!-- Email verification -->
+    <div id="verify-modal" class="hidden fixed inset-0 z-[10000] bg-navy/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center">
+            <h2 class="text-xl font-black text-navy uppercase mb-2">Verify your email</h2>
+            <p class="text-sm text-slate-600 mb-1">We sent a link to</p>
+            <p id="verify-target" class="text-sm font-bold text-navy mb-4 break-all"></p>
+            <p class="text-xs text-slate-500 mb-5">Open it, then come back. This page continues on its own. Check Junk or Quarantine if it isn't in your inbox.</p>
+            <div class="flex gap-2">
+                <button id="verify-resend" class="flex-1 bg-slate-100 text-navy font-black py-3 rounded-lg text-[11px] uppercase tracking-widest hover:bg-slate-200">Resend</button>
+                <button id="verify-cancel" class="flex-1 bg-navy text-white font-black py-3 rounded-lg text-[11px] uppercase tracking-widest hover:bg-navy-light">Sign out</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App -->
+    <div id="app" class="hidden fixed inset-0 flex-col">
+        <div id="demo-banner" class="hidden bg-yellow text-navy text-[11px] font-bold px-4 py-1.5 flex items-center justify-center gap-3 flex-wrap">
+            <span>DEMO: synthetic parties, changes stay in this browser.</span>
+            <span class="flex items-center gap-1">View as
+                <button data-demo-role="command" class="demo-role px-2 py-0.5 rounded">Command</button>
+                <button data-demo-role="crew" class="demo-role px-2 py-0.5 rounded">Crew</button>
+            </span>
+            <button id="demo-reset" class="underline">Reset demo</button>
+        </div>
+
+        <header class="h-16 sm:h-20 shrink-0 bg-white border-b border-gray-200 px-3 sm:px-6 flex items-center justify-between gap-3 z-[70]">
+            <div class="flex items-center gap-3 min-w-0">
+                <button id="sidebar-toggle" class="bg-navy text-white p-2.5 rounded-lg lg:hidden shadow-md" aria-label="Show units and parties" aria-controls="sidebar" aria-expanded="false">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                </button>
+                <img src="https://files.constantcontact.com/3720c3fd901/10017eb4-f7d2-424d-92ed-c1b5424b9869.png" alt="" class="h-9 sm:h-10">
+                <div class="min-w-0">
+                    <h1 class="text-navy font-black uppercase text-sm sm:text-base leading-none truncate">National Night Out</h1>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span id="status-dot" class="w-2 h-2 rounded-full bg-yellow-400"></span>
+                        <p id="status-text" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate">Connecting...</p>
+                    </div>
+                </div>
+            </div>
+            <div class="hidden md:flex gap-6 items-center border-l border-r border-gray-100 px-6">
+                <div class="text-center"><span id="stat-parties" class="tnum block text-2xl font-black text-navy leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Parties</span></div>
+                <div class="text-center"><span id="stat-units" class="tnum block text-2xl font-black text-navy leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Units out</span></div>
+                <div class="text-center"><span id="stat-open" class="tnum block text-2xl font-black text-red leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Need a unit</span></div>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="role-pill" class="hidden sm:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full"></span>
+                <button id="import-btn" class="hidden bg-navy hover:bg-navy-light text-white text-[10px] font-black py-2.5 px-3 sm:px-4 rounded-lg shadow uppercase tracking-widest items-center gap-2">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                    <span class="hidden sm:inline">Import</span>
+                </button>
+                <button id="access-btn" class="hidden text-gray-400 hover:text-navy p-2" aria-label="Manage Command access">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                </button>
+                <button id="logout-btn" class="text-gray-400 hover:text-red p-2" aria-label="Sign out">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-1 relative flex min-h-0">
+            <aside id="sidebar" class="absolute inset-y-0 left-0 w-[340px] max-w-[88vw] glass-dark z-[60] -translate-x-full lg:translate-x-0 transition-transform duration-300 flex flex-col border-r border-white/10 shadow-2xl">
+                <div class="p-3 border-b border-white/10 flex items-center gap-2">
+                    <div class="flex bg-white/10 p-1 rounded-xl flex-1" role="tablist">
+                        <button id="tab-units" role="tab" class="tab flex-1 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest">Units</button>
+                        <button id="tab-parties" role="tab" class="tab flex-1 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest">Parties</button>
+                    </div>
+                    <button id="sidebar-close" class="lg:hidden text-white/70 hover:text-white p-2" aria-label="Close panel">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+                <p id="sidebar-hint" class="hidden px-4 pt-3 text-[11px] leading-snug text-blue-100/80"></p>
+                <div id="units-pane" class="flex-1 overflow-y-auto scroll-dark pb-6"></div>
+                <div id="parties-pane" class="hidden flex-1 overflow-y-auto scroll-dark pb-6"></div>
+            </aside>
+
+            <div class="flex-1 relative overflow-hidden lg:ml-[340px]">
+                <div id="map" class="absolute inset-0 bg-slate-200"></div>
+                <div id="map-loading" class="absolute inset-0 z-[40] flex flex-col items-center justify-center bg-slate-100"><div class="loading-spinner mb-4"></div><p class="text-sm font-bold text-gray-500 uppercase tracking-wider">Loading map data...</p></div>
+
+                <!-- Time filter -->
+                <div class="absolute top-3 left-0 right-0 z-[50] flex justify-center pointer-events-none px-3">
+                    <div id="time-filter" class="pointer-events-auto bg-white rounded-full p-1 shadow-floating flex items-center gap-0.5 border border-gray-200 overflow-x-auto max-w-full no-scrollbar" role="group" aria-label="Filter parties by start time"></div>
+                </div>
+
+                <!-- Arm banner (tap-to-assign) -->
+                <div id="arm-banner" class="hidden absolute top-16 left-0 right-0 z-[55] flex justify-center px-3 pointer-events-none">
+                    <div class="pointer-events-auto bg-navy text-white rounded-xl shadow-floating px-4 py-2.5 flex items-center gap-3 text-xs font-bold">
+                        <span id="arm-text"></span>
+                        <button id="arm-done" class="bg-yellow text-navy font-black uppercase tracking-widest text-[10px] px-3 py-1.5 rounded-lg">Done</button>
+                    </div>
+                </div>
+
+                <!-- Legend -->
+                <details id="legend" class="absolute bottom-4 left-3 z-[50] bg-white/95 rounded-xl shadow-floating border border-gray-200 text-[10px] max-w-[260px]">
+                    <summary class="cursor-pointer select-none px-3 py-2 font-black uppercase tracking-widest text-navy">Legend</summary>
+                    <div id="legend-body" class="px-3 pb-3 space-y-2"></div>
+                </details>
+
+                <!-- Party detail -->
+                <section id="detail" class="detail-panel hidden absolute z-[65] bg-white shadow-2xl flex flex-col" aria-label="Party details"></section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Drag ghost -->
+    <div id="drag-ghost" class="hidden fixed z-[20000] pointer-events-none"></div>
+
+    <!-- Import -->
+    <dialog id="import-dialog" class="modal">
+        <div class="p-6 max-w-2xl w-[92vw]">
+            <div class="flex items-start justify-between gap-4 mb-4">
+                <div>
+                    <h2 class="text-xl font-black uppercase text-navy">Import parties</h2>
+                    <p class="text-xs text-slate-500 mt-1">Choose the NNO spreadsheet from Community Engagement. The Party Host Name column is skipped and never saved. Re-importing keeps unit assignments, the Mayor and pins you moved.</p>
+                </div>
+                <button class="dialog-close text-slate-400 hover:text-navy p-1" aria-label="Close"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <label class="block border-2 border-dashed border-slate-300 rounded-xl p-6 text-center cursor-pointer hover:border-navy hover:bg-slate-50 transition">
+                <input id="import-file" type="file" accept=".xlsx,.xls,.csv" class="sr-only">
+                <span class="text-sm font-bold text-navy">Choose spreadsheet</span>
+                <span class="block text-[11px] text-slate-500 mt-1">.xlsx, read on this device</span>
+            </label>
+            <p id="import-msg" class="hidden mt-3 text-xs font-bold"></p>
+            <div id="import-preview" class="mt-4 max-h-[45vh] overflow-y-auto"></div>
+            <div class="mt-5 flex justify-end gap-2">
+                <button class="dialog-close bg-slate-100 text-navy font-black py-2.5 px-4 rounded-lg text-[11px] uppercase tracking-widest">Cancel</button>
+                <button id="import-confirm" disabled class="bg-navy text-white font-black py-2.5 px-4 rounded-lg text-[11px] uppercase tracking-widest disabled:opacity-40">Import</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- Command access -->
+    <dialog id="access-dialog" class="modal">
+        <div class="p-6 max-w-md w-[92vw]">
+            <div class="flex items-start justify-between gap-4 mb-4">
+                <div>
+                    <h2 class="text-xl font-black uppercase text-navy">Command access</h2>
+                    <p class="text-xs text-slate-500 mt-1">Command can assign units, import parties and move pins. Everyone else with a verified city email can view.</p>
+                </div>
+                <button class="dialog-close text-slate-400 hover:text-navy p-1" aria-label="Close"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg></button>
+            </div>
+            <form id="access-form" class="flex gap-2 mb-4">
+                <label class="sr-only" for="access-email">City email</label>
+                <input id="access-email" type="email" placeholder="name@cityofdenton.com" class="flex-1 bg-slate-50 border border-slate-200 p-2.5 rounded-lg text-sm">
+                <button class="bg-navy text-white font-black px-4 rounded-lg text-[11px] uppercase tracking-widest">Add</button>
+            </form>
+            <p id="access-msg" class="hidden mb-3 text-xs font-bold"></p>
+            <ul id="access-list" class="divide-y divide-slate-100"></ul>
+        </div>
+    </dialog>
+
+    <!-- QR -->
+    <button id="qr-fab" class="fixed bottom-4 right-4 z-[80] w-12 h-12 rounded-full bg-navy text-white shadow-floating flex items-center justify-center hover:bg-navy-light" aria-label="Show QR code for this page">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z"/></svg>
+    </button>
+    <dialog id="qr-dialog" class="modal">
+        <div class="p-6 text-center w-[300px]">
+            <h2 class="text-lg font-black uppercase text-navy mb-1">Open on your phone</h2>
+            <p class="text-xs text-slate-500 mb-4">Scan to open the NNO map. Sign in with your city email.</p>
+            <div id="qr-code" class="inline-block p-3 bg-white rounded-lg border border-slate-200"></div>
+            <button class="dialog-close mt-5 w-full bg-navy text-white font-black py-2.5 rounded-lg text-[11px] uppercase tracking-widest">Close</button>
+        </div>
+    </dialog>
+
+    <div id="toast" role="status" aria-live="polite" class="toast"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js" defer></script>
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>

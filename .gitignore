@@ -1,0 +1,43 @@
+# --- secrets: never commit ---
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.p12
+*-service-account*.json
+credentials.json
+
+# --- platform state ---
+.vercel/
+.supabase/
+
+# --- dependencies & build output ---
+node_modules/
+.next/
+out/
+dist/
+build/
+.turbo/
+coverage/
+
+# --- python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# --- editor & os ---
+.DS_Store
+.idea/
+*.swp
+
+# --- real-world data: never commit (spreadsheets from Community Engagement carry host names) ---
+*.xlsx
+*.xls
+*.csv
+
+# --- firebase local state ---
+.firebase/
+firebase-debug.log
+firestore-debug.log
