@@ -32,11 +32,15 @@ const S = {
   unsubscribe: null,
   lastSync: null,
   myUnit: null,
+  event: {},
+  unsubEvent: null,
   tabRole: null,
 };
 const MY_UNIT_KEY = "nno-my-unit";
 try { const u = localStorage.getItem(MY_UNIT_KEY); if (UNITS.has(u)) S.myUnit = u; } catch { /* storage blocked */ }
 const isCommand = () => S.role === "command" || S.role === "owner";
+// Command can change assignments only while the map isn't finalized (locked).
+const canEdit = () => isCommand() && !S.event.finalized;
 // The unit the map is drawn around: one picked in the roster, else a crew member's own unit.
 const focusUnit = () => S.selectedUnit || (!isCommand() ? S.myUnit : null);
 
@@ -186,6 +190,8 @@ function handleAuth({ user, unverified, role }) {
     S.user = null;
     S.unsubscribe?.();
     S.unsubscribe = null;
+    S.unsubEvent?.();
+    S.unsubEvent = null;
     $("app").classList.add("hidden");
     $("app").classList.remove("flex");
     $("login-overlay").style.display = "flex";
@@ -215,8 +221,8 @@ function startApp() {
   const cmd = isCommand();
   $("role-pill").textContent = cmd ? "Command" : "Crew";
   $("role-pill").className = `hidden sm:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${cmd ? "bg-navy text-yellow" : "bg-slate-100 text-slate-500"}`;
-  $("import-btn").classList.toggle("hidden", !cmd);
-  $("import-btn").classList.toggle("flex", cmd);
+  $("finalize-btn").classList.toggle("hidden", !cmd);
+  $("finalize-btn").classList.toggle("flex", cmd);
   const owner = S.role === "owner" && !DEMO;
   $("access-btn").classList.toggle("hidden", !owner);
   $("access-btn").classList.toggle("flex", owner);
@@ -236,6 +242,16 @@ function startApp() {
   if (!cmd) disarm();
 
   initMap();
+  if (!S.unsubEvent) {
+    S.unsubEvent = S.store.subscribeEvent(ev => {
+      const wasFinal = Boolean(S.event.finalized);
+      S.event = ev || {};
+      if (S.event.finalized && !wasFinal) { disarm(); S.selectedUnit = null; S.movingPin && cancelMovePin(); }
+      applyLock();
+      render();
+    }, err => console.error(err));
+  }
+  applyLock();
   if (!S.unsubscribe) {
     S.unsubscribe = S.store.subscribeParties(parties => {
       S.parties = parties.sort(byTime);
@@ -326,7 +342,7 @@ function markerHTML(p) {
   const units = fdUnits(p);
   const need = units.length === 0;
   const visible = S.timeFilter === "all" || (S.timeFilter === "now" ? isLive(p) : p.start === S.timeFilter);
-  const cmd = isCommand();
+  const cmd = canEdit();
   const has = S.selectedUnit && (p.units || []).includes(S.selectedUnit);
   // Crews: picking a unit dims everything else. Command: picking a unit means "where does it go",
   // so every party lights up as a drop target.
@@ -408,7 +424,7 @@ function renderTimeFilter() {
 }
 
 function renderUnits() {
-  const cmd = isCommand();
+  const cmd = canEdit();
   $("units-pane").innerHTML = STATIONS.map(st => `
     <div class="station-head"><h3>Station ${st.station}</h3><span>District ${st.station}</span></div>
     ${st.units.map(([id]) => {
@@ -433,7 +449,7 @@ function renderParties() {
   }
   pane.innerHTML = S.parties.map(p => {
     const units = fdUnits(p);
-    const chips = units.map(u => chipHTML(u, { party: p, draggable: isCommand(), from: p.id })).join("") + (p.police ? pdChip() : "") + (p.mayor ? mayorChip() : "");
+    const chips = units.map(u => chipHTML(u, { party: p, draggable: canEdit(), from: p.id })).join("") + (p.police ? pdChip() : "") + (p.mayor ? mayorChip() : "");
     return `<button class="party-row${S.selectedParty === p.id ? " selected" : ""}" data-party="${esc(p.id)}">
       <div class="flex items-center justify-between gap-2">
         <span class="time-tag"><i style="background:${timeColor(p.start)}"></i>${fmtRange(p)}</span>
@@ -464,7 +480,7 @@ function renderDetail() {
   if (!p) { el.classList.add("hidden"); el.classList.remove("flex"); return; }
   el.classList.remove("hidden");
   el.classList.add("flex");
-  const cmd = isCommand();
+  const cmd = canEdit();
   const units = fdUnits(p);
   const others = (p.depts || []).filter(d => !/^(fire|police|other)$/i.test(d));
   const moving = S.movingPin?.id === p.id;
@@ -613,6 +629,7 @@ function renderMine() {
       <div class="flex items-center gap-2.5">${chipHTML(S.myUnit)}<div class="leading-tight"><div class="text-white font-black text-sm">${TYPE_LABEL[u.type]} ${S.myUnit}</div><div class="text-[10px] font-bold uppercase tracking-widest text-blue-100/70">Station ${d} · District ${d}</div></div></div>
       <button class="text-[10px] font-black uppercase tracking-widest text-yellow underline" data-change-unit>Change</button>
     </div>
+    <p class="px-4 mt-2 text-[11px] font-bold ${S.event.finalized ? "text-green-300" : "text-yellow"}">${S.event.finalized ? `Assignments are final${S.event.finalizedAt ? ` as of ${fmtWhen(S.event.finalizedAt)}` : ""}.` : "Chiefs are still assigning. This may change."}</p>
     <div class="sec">Where you're going</div>
     ${stopCards}
     <div class="sec">Covering District ${d}</div>
@@ -676,6 +693,154 @@ function wireMine() {
   });
 }
 
+// ------------------------------------------------------------- finalize, lock, notify
+
+function fmtWhen(ts) {
+  const d = ts?.toDate ? ts.toDate() : new Date(ts);
+  return isNaN(d) ? "" : d.toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" });
+}
+
+function applyLock() {
+  const cmd = isCommand();
+  const locked = Boolean(S.event.finalized);
+  $("locked-banner").classList.toggle("hidden", !(cmd && locked));
+  $("locked-banner").classList.toggle("flex", cmd && locked);
+  if (locked) $("locked-text").textContent = `Map locked${S.event.finalizedBy ? ` by ${S.event.finalizedBy}` : ""}${S.event.finalizedAt ? `, ${fmtWhen(S.event.finalizedAt)}` : ""}. Assignments are final.`;
+  $("finalize-label").textContent = locked ? "Finalized" : "Finalize";
+  $("finalize-btn").classList.toggle("bg-yellow", !locked);
+  $("finalize-btn").classList.toggle("bg-green-100", locked);
+  $("import-btn").classList.toggle("hidden", !canEdit());
+  $("import-btn").classList.toggle("flex", canEdit());
+  $("sidebar-hint").innerHTML = canEdit()
+    ? "<b class='text-white'>Drag a unit onto a party</b>, or tap a unit and then tap parties. A unit can cover several parties. When everyone is assigned, tap <b class='text-yellow'>Finalize</b>."
+    : cmd ? "Map is locked. Tap <b class='text-white'>Unlock to edit</b> above to make changes."
+    : "Tap a unit to see its stops. Tap a party for details and directions.";
+}
+
+// Problems worth a second look before locking. key is stable so an accepted issue stays accepted.
+function findIssues() {
+  const issues = [];
+  for (const p of S.parties) {
+    if (!fdUnits(p).length) issues.push({ key: `uncovered:${p.id}`, level: "error", party: p.id, text: `<b>${esc(p.name)}</b> (${fmtTime(p.start)}) has no fire unit.` });
+    if (p.lat == null) issues.push({ key: `nopin:${p.id}`, level: "warn", party: p.id, text: `<b>${esc(p.name)}</b> has no map pin, so crews can't get directions.` });
+    else if (!p.fireDistrict) issues.push({ key: `outside:${p.id}`, level: "warn", party: p.id, text: `<b>${esc(p.name)}</b> is pinned outside DFD fire districts. Check the location.` });
+    else if (p.pinApprox && !p.pinMoved) issues.push({ key: `approx:${p.id}`, level: "warn", party: p.id, text: `<b>${esc(p.name)}</b> has an approximate pin from its street address. Confirm it.` });
+  }
+  for (const [u] of UNITS) {
+    const byStart = new Map();
+    for (const p of stopsFor(u)) byStart.set(p.start, [...(byStart.get(p.start) || []), p]);
+    for (const [start, ps] of byStart) if (ps.length > 1) {
+      issues.push({ key: `clash:${u}:${start}`, level: "warn", party: ps[0].id, text: `<b>${u}</b> is at ${ps.length} parties starting at ${fmtTime(start)}: ${ps.map(p => esc(p.name)).join(", ")}.` });
+    }
+  }
+  return issues;
+}
+
+function openFinalize() {
+  if (S.event.finalized) return openNotify();
+  if (!S.parties.length) return toast("No parties loaded yet. Import the spreadsheet first.", true);
+  const issues = findIssues();
+  const accepted = new Set();
+  const covered = S.parties.filter(p => fdUnits(p).length).length;
+  const unitsOut = new Set(S.parties.flatMap(fdUnits)).size;
+  $("finalize-summary").innerHTML = `${covered} of ${S.parties.length} parties covered by ${unitsOut} unit${unitsOut === 1 ? "" : "s"}. ${issues.length ? `${issues.length} item${issues.length === 1 ? "" : "s"} to fix or accept.` : "Everything checks out."}`;
+  const list = $("finalize-issues");
+  const draw = () => {
+    list.innerHTML = issues.length ? issues.map(it => `<li class="py-3 flex items-start gap-3">
+        <span class="mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black ${it.level === "error" ? "bg-red text-white" : "bg-amber-100 text-amber-700"}">${it.level === "error" ? "!" : "?"}</span>
+        <span class="flex-1 text-[13px] leading-snug ${accepted.has(it.key) ? "text-slate-400 line-through" : "text-navy"}">${it.text}</span>
+        <span class="flex gap-1.5 shrink-0">
+          <button class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200" data-fix="${esc(it.party)}">Fix</button>
+          <button class="text-[10px] font-black uppercase tracking-widest px-2.5 py-1.5 rounded-md ${accepted.has(it.key) ? "bg-navy text-white" : "border border-slate-300 hover:border-navy"}" data-accept="${esc(it.key)}">${accepted.has(it.key) ? "Accepted" : "Accept"}</button>
+        </span></li>`).join("")
+      : `<li class="py-4 flex items-center gap-3 text-sm font-bold text-green-700"><span class="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center">✓</span>All parties are covered and every pin checks out.</li>`;
+    const ready = issues.every(it => accepted.has(it.key));
+    $("finalize-confirm").disabled = !ready;
+    $("finalize-confirm").title = ready ? "" : "Fix or accept each item first";
+  };
+  list.onclick = e => {
+    const fix = e.target.closest("[data-fix]");
+    if (fix) { $("finalize-dialog").close(); selectParty(fix.dataset.fix, { fly: true }); return; }
+    const acc = e.target.closest("[data-accept]");
+    if (acc) { accepted.has(acc.dataset.accept) ? accepted.delete(acc.dataset.accept) : accepted.add(acc.dataset.accept); draw(); }
+  };
+  $("finalize-confirm").onclick = async () => {
+    $("finalize-confirm").disabled = true;
+    try {
+      await S.store.setFinalized(true, issues.filter(it => accepted.has(it.key)).map(it => it.key));
+      $("finalize-dialog").close();
+      toast("Map finalized and locked");
+      openNotify();
+    } catch (e) { fail(e); draw(); }
+  };
+  draw();
+  $("finalize-dialog").showModal();
+}
+
+function eventDateText() {
+  const d = new Date(`${EVENT.date}T12:00:00`);
+  return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+}
+
+function notifyMessage() {
+  const url = location.origin + location.pathname;
+  return {
+    subject: `${EVENT.name}: unit assignments are ready`,
+    body: `All,
+
+National Night Out is ${eventDateText()}. Unit assignments are posted on the DFD National Night Out map:
+
+${url}
+
+FIRST TIME? SET UP YOUR ACCOUNT EARLY
+- Open the link and tap "Create Account". Use your @cityofdenton.com email.
+- The verification email comes from noreply@dfd-national-night-out.firebaseapp.com. It can take up to 15 minutes and may land in Junk, so do this well before your first party.
+- If the verification link says it expired or was already used, city email security opened it first. You're verified: just sign in.
+
+HOW TO USE THE MAP
+1. Sign in and pick your unit (E6, M3, T1...). Your phone remembers it.
+2. "Where you're going" lists your stops in order with start times, plus Google Maps and Apple Maps buttons for directions.
+3. Tap any party pin to see the address, time, notes and who's attending. Pinch or use + / - to zoom.
+4. A yellow "OUT" tag means a unit is helping outside its home district. Parties aren't spread evenly across the city, so some districts need extra help.
+5. The Mayor icon means the Mayor may stop by that party. Keep in mind the Mayor may move around to any or all of the parties.
+6. Tap the ? button for a quick walkthrough.
+
+Questions: contact your Battalion Chief.
+
+Thank you,
+`,
+  };
+}
+
+function openNotify() {
+  const m = notifyMessage();
+  $("notify-subject").value = m.subject;
+  $("notify-body").value = m.body;
+  $("notify-msg").className = "hidden";
+  $("notify-dialog").showModal();
+}
+
+function wireFinalize() {
+  $("finalize-btn").addEventListener("click", openFinalize);
+  $("locked-notify").addEventListener("click", openNotify);
+  $("locked-unlock").addEventListener("click", async () => {
+    if (!confirm("Unlock the map for changes? Crews will see changes as you make them. Finalize again when you're done.")) return;
+    try { await S.store.setFinalized(false); toast("Map unlocked for editing"); } catch (e) { fail(e); }
+  });
+  $("notify-copy").addEventListener("click", async () => {
+    const text = `${$("notify-subject").value}\n\n${$("notify-body").value}`;
+    try { await navigator.clipboard.writeText(text); }
+    catch { $("notify-body").select(); document.execCommand("copy"); }
+    const el = $("notify-msg");
+    el.textContent = "Copied. Paste it into an email to the department.";
+    el.className = "mt-2 text-xs font-bold text-green-700";
+  });
+  $("notify-email").addEventListener("click", () => {
+    const href = `mailto:?subject=${encodeURIComponent($("notify-subject").value)}&body=${encodeURIComponent($("notify-body").value)}`;
+    location.href = href;
+  });
+}
+
 // ------------------------------------------------------------- walkthrough
 
 const tourRole = () => (isCommand() ? "command" : "crew");
@@ -721,6 +886,8 @@ function commandSteps() {
   ];
   if (S.role === "owner" && !DEMO) steps.push({ title: "Who can assign", target: () => visible($("access-btn")),
     body: "<p>Only you see <b>Access</b>. Add a BC or AC by city email to give them Command. Everyone else who signs up gets the read-only crew view.</p>" });
+  steps.push({ title: "Last step: Finalize", target: () => visible($("finalize-btn")), before: hideSidebar,
+    body: "<p>When everyone is assigned, tap <b>Finalize</b>. It runs a final check (uncovered parties, pin problems, a unit booked twice at the same time). <b>Fix</b> each item or <b>Accept</b> it, for example a party that canceled.</p><p class='mt-2'>Finalizing <b>locks the map</b> and gives you a ready-made email for the department, with the link and instructions. Use <b>Unlock to edit</b> for last-minute changes.</p>" });
   steps.push({ title: "You're set", body: "<p>Changes save instantly and show up for everyone. Tap <b>?</b> anytime to see this again.</p>" });
   return steps;
 }
@@ -765,7 +932,7 @@ function selectParty(id, { fly = false } = {}) {
 
 function selectUnit(id) {
   S.selectedUnit = S.selectedUnit === id ? null : id;
-  if (isCommand()) S.selectedUnit ? arm(S.selectedUnit) : disarm();
+  if (canEdit()) S.selectedUnit ? arm(S.selectedUnit) : disarm();
   if (S.selectedUnit) {
     const pts = stopsFor(S.selectedUnit).filter(p => p.lat != null).map(p => [p.lat, p.lng]);
     if (pts.length === 1) S.map.flyTo(pts[0], Math.max(S.map.getZoom(), 13), { duration: 0.6 });
@@ -786,7 +953,7 @@ function disarm() {
 }
 
 function onPartyTap(id) {
-  if (S.armedUnit && isCommand()) return assign(id, S.armedUnit);
+  if (S.armedUnit && canEdit()) return assign(id, S.armedUnit);
   selectParty(S.selectedParty === id ? null : id);
 }
 
@@ -865,14 +1032,14 @@ function wireDrag() {
   // (which would pan the map instead).
   document.addEventListener("pointerdown", e => {
     const chip = e.target.closest(".chip.draggable[data-unit]");
-    if (!chip || !isCommand() || e.button > 0) return;
+    if (!chip || !canEdit() || e.button > 0) return;
     if (inMarker(chip)) e.stopPropagation();
     drag = { unit: chip.dataset.unit, from: chip.dataset.from || null, chip, x: e.clientX, y: e.clientY, active: false, id: e.pointerId };
   }, true);
   for (const type of ["mousedown", "touchstart"]) {
     document.addEventListener(type, e => {
       const chip = e.target.closest?.(".chip.draggable[data-unit]");
-      if (chip && isCommand() && inMarker(chip)) e.stopPropagation();
+      if (chip && canEdit() && inMarker(chip)) e.stopPropagation();
     }, { capture: true, passive: true });
   }
   // A finished drag must not also count as a click on whatever it was dropped near.
@@ -1004,7 +1171,7 @@ function wireUI() {
   $("parties-pane").addEventListener("click", e => {
     const row = e.target.closest(".party-row");
     if (!row) return;
-    if (S.armedUnit && isCommand()) return assign(row.dataset.party, S.armedUnit);
+    if (S.armedUnit && canEdit()) return assign(row.dataset.party, S.armedUnit);
     selectParty(row.dataset.party, { fly: true });
   });
 
@@ -1056,6 +1223,7 @@ function wireUI() {
 
   wireImport();
   wireAccess();
+  wireFinalize();
 
   if (DEMO) {
     $("demo-banner").classList.remove("hidden");

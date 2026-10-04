@@ -22,17 +22,29 @@ service cloud.firestore {
       return exists(roleDoc()) ? get(roleDoc()).data.role : 'crew';
     }
     function isCommand() { return cityUser() && role() in ['command', 'owner']; }
+    // Finalized = locked: party changes are refused until Command unlocks (config/event).
+    function locked() {
+      return exists(/databases/$(database)/documents/config/event)
+        && get(/databases/$(database)/documents/config/event).data.finalized == true;
+    }
     function isOwner()   { return cityUser() && role() == 'owner'; }
 
     match /parties/{partyId} {
       allow read: if cityUser();
-      allow create, update: if isCommand()
+      allow create, update: if isCommand() && !locked()
         && request.resource.data.name is string
         && request.resource.data.units is list
         && request.resource.data.units.size() <= 40
         && !('host' in request.resource.data)
         && !('hostName' in request.resource.data);
-      allow delete: if isCommand();
+      allow delete: if isCommand() && !locked();
+    }
+
+    match /config/event {
+      allow read: if cityUser();
+      allow write: if isCommand()
+        && request.resource.data.finalized is bool
+        && request.resource.data.acceptedIssues is list;
     }
 
     match /roles/{email} {

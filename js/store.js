@@ -6,6 +6,8 @@
 //   name, address, notes, lat, lng, council, fireDistrict, start "HH:MM", end "HH:MM",
 //   attendance, depts[], guests, police, mayor, units[], pinMoved
 // Role document (collection "roles", id = lowercase email): { role: "command" | "owner" }
+// Event document (config/event): { finalized, finalizedBy, finalizedAt, acceptedIssues[] }.
+//   While finalized, Firestore rules refuse party changes until Command unlocks.
 
 import { firebaseConfig, ALLOWED_EMAIL_DOMAIN } from "./config.js";
 
@@ -66,6 +68,18 @@ export async function firebaseStore() {
       F.updateDoc(F.doc(db, "parties", id), { lat, lng, fireDistrict, pinMoved: true, ...stamp() }),
     removeParty: id => F.deleteDoc(F.doc(db, "parties", id)),
 
+    subscribeEvent(cb, onError) {
+      return F.onSnapshot(F.doc(db, "config", "event"), snap => cb(snap.exists() ? snap.data() : {}), onError);
+    },
+    setFinalized: (finalized, acceptedIssues = []) =>
+      F.setDoc(F.doc(db, "config", "event"), {
+        finalized,
+        acceptedIssues: finalized ? acceptedIssues : [],
+        finalizedBy: finalized ? who() : null,
+        finalizedAt: finalized ? F.serverTimestamp() : null,
+        ...stamp(),
+      }),
+
     // Upsert from the spreadsheet. Keeps assignments, Mayor flags and hand-moved pins.
     async importParties(list, existing) {
       const batch = F.writeBatch(db);
@@ -92,6 +106,7 @@ export async function firebaseStore() {
 // ---------------------------------------------------------------- demo
 
 const DEMO_KEY = "nno-demo-v1";
+const DEMO_EVENT_KEY = "nno-demo-event-v1";
 
 // Synthetic parties at invented spots inside each fire district. Not real events.
 const DEMO_PARTIES = [
@@ -123,6 +138,9 @@ export function demoStore(initialRole = "command") {
   try { parties = JSON.parse(localStorage.getItem(DEMO_KEY)); } catch { parties = null; }
   if (!Array.isArray(parties)) parties = structuredClone(DEMO_PARTIES);
   const listeners = new Set();
+  const eventListeners = new Set();
+  let event = {};
+  try { event = JSON.parse(localStorage.getItem(DEMO_EVENT_KEY)) || {}; } catch { event = {}; }
   let authCb = null;
   let role = initialRole;
   const save = () => {
@@ -146,6 +164,16 @@ export function demoStore(initialRole = "command") {
     async setMayor(id, on) { edit(id, p => { p.mayor = on; }); },
     async movePin(id, lat, lng, fd) { edit(id, p => Object.assign(p, { lat, lng, fireDistrict: fd, pinMoved: true })); },
     async removeParty(id) { parties = parties.filter(p => p.id !== id); save(); },
+    subscribeEvent(cb) {
+      eventListeners.add(cb);
+      setTimeout(() => cb({ ...event }));
+      return () => eventListeners.delete(cb);
+    },
+    async setFinalized(finalized, acceptedIssues = []) {
+      event = { finalized, acceptedIssues: finalized ? acceptedIssues : [], finalizedBy: finalized ? user.email : null, finalizedAt: finalized ? new Date().toISOString() : null };
+      try { localStorage.setItem(DEMO_EVENT_KEY, JSON.stringify(event)); } catch { /* storage blocked */ }
+      eventListeners.forEach(cb => cb({ ...event }));
+    },
     async importParties(list, existing) {
       for (const p of list) {
         const prev = existing.get(p.id);
@@ -156,7 +184,7 @@ export function demoStore(initialRole = "command") {
       }
       save();
     },
-    resetDemo() { parties = structuredClone(DEMO_PARTIES); save(); },
+    resetDemo() { parties = structuredClone(DEMO_PARTIES); save(); this.setFinalized(false); },
     async listRoles() { return [{ email: user.email, role: "owner" }]; },
     async setRole() {}, async removeRole() {},
   };

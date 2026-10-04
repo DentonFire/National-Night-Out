@@ -13,10 +13,13 @@ you use it.
   Tests and demos use the synthetic parties in `js/store.js`.
 - Keep the house style of the other `dentonfire.github.io` tools (Water-Shutoff is the reference).
 - Firestore rules are the security boundary, not the page. Change them with the page, never after.
+- Run `./bump-version.sh` before every push. GitHub Pages caches files for 10 minutes, and the
+  version stamps in `index.html` make browsers load a matching set of scripts.
 
 ## Commands
 
 ```bash
 python3 -m http.server 5173                       # then open http://localhost:5173/?demo=1
+./bump-version.sh                                 # before every push
 firebase deploy --only firestore:rules --project <project-id>
 ```
