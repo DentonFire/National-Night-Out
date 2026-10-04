@@ -220,7 +220,7 @@ function handleAuth({ user, unverified, role }) {
 function startApp() {
   const cmd = isCommand();
   $("role-pill").textContent = cmd ? "Command" : "Crew";
-  $("role-pill").className = `hidden sm:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${cmd ? "bg-navy text-yellow" : "bg-slate-100 text-slate-500"}`;
+  $("role-pill").className = `hidden xl:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${cmd ? "bg-navy text-yellow" : "bg-slate-100 text-slate-500"}`;
   $("finalize-btn").classList.toggle("hidden", !cmd);
   $("finalize-btn").classList.toggle("flex", cmd);
   const owner = S.role === "owner" && !DEMO;
@@ -409,9 +409,11 @@ function render() {
 
 function renderStats() {
   const out = new Set(S.parties.flatMap(fdUnits));
-  $("stat-parties").textContent = S.parties.length;
-  $("stat-units").textContent = out.size;
-  $("stat-open").textContent = S.parties.filter(p => fdUnits(p).length === 0).length;
+  const open = S.parties.filter(p => fdUnits(p).length === 0).length;
+  for (const [id, v] of [["parties", S.parties.length], ["units", out.size], ["open", open]]) {
+    $(`stat-${id}`).textContent = v;
+    $(`strip-${id}`).textContent = v;
+  }
 }
 
 function renderTimeFilter() {
@@ -803,7 +805,7 @@ HOW TO USE THE MAP
 3. Tap any party pin to see the address, time, notes and who's attending. Pinch or use + / - to zoom.
 4. A yellow "OUT" tag means a unit is helping outside its home district. Parties aren't spread evenly across the city, so some districts need extra help.
 5. The Mayor icon means the Mayor may stop by that party. Keep in mind the Mayor may move around to any or all of the parties.
-6. Tap the ? button for a quick walkthrough.
+6. For a quick walkthrough, tap ? (on a phone: the ... menu, then Walkthrough).
 
 Questions: contact your Battalion Chief.
 
@@ -864,7 +866,7 @@ function openSampleParty() {
 
 function commandSteps() {
   const steps = [
-    { title: "Welcome to NNO Command", body: "<p>This is where Battalion Chiefs and the Assistant Chief put units on National Night Out parties. Crews see your assignments live on their phones.</p><p class='mt-2'>This takes about a minute. You can replay it anytime with the <b>?</b> button.</p>" },
+    { title: "Welcome to NNO Command", body: "<p>This is where Battalion Chiefs and the Assistant Chief put units on National Night Out parties. Crews see your assignments live on their phones.</p><p class='mt-2'>This takes about a minute. You can replay it anytime with the <b>?</b> button (on a phone: <b>⋯</b> → Walkthrough).</p>" },
     { title: "The roster", target: () => visible($("units-pane")), before: showSidebar("units"),
       body: "<p>Every station's assignable units. The number is the station and its fire district: <b>M5</b> is home in District 5.</p><p class='mt-2'>The count on the right is how many parties that unit covers.</p>" },
     { title: "Drag a unit onto a party", target: () => visible(first("#units-pane .chip.draggable")), before: showSidebar("units"),
@@ -881,10 +883,10 @@ function commandSteps() {
       body: "<p>Tap any party to open its card:</p><ul class='tour-list'><li>Address, notes, time and expected attendance</li><li><b>Google Maps</b> / <b>Apple Maps</b> directions</li><li><b>Add a unit</b> from the list, or remove one with <b>×</b></li><li>Switch the <b>Mayor</b> on or off</li><li><b>Move pin</b> if a location is wrong</li></ul>" },
     { title: "Coverage", target: () => visible($("coverage-pane")), before: () => { selectParty(null); showSidebar("coverage")(); },
       body: "<p>Parties per district against the units at each station. <b class='text-amber-600'>Yellow bars</b> are districts with more parties than home units (usually Six). <b>Still open</b> lists parties with no unit yet.</p>" },
-    { title: "Next year's NNO: import the new sheet", target: () => visible($("import-btn")), before: hideSidebar,
+    { title: "Next year's NNO: import the new sheet", target: () => visible($("import-btn")) || visible($("more-btn")), before: hideSidebar,
       body: "<p>Each year the <b>Community Risk Reduction Officer</b> sends the party spreadsheet. Import it here and tick <b>New year: replace all parties</b> to clear last year's parties and assignments.</p><p class='mt-2'>If an <b>updated</b> sheet comes in before the event, import it without that box: assignments, the Mayor and moved pins are kept. Host names are always skipped.</p>" },
   ];
-  if (S.role === "owner" && !DEMO) steps.push({ title: "Who can assign", target: () => visible($("access-btn")),
+  if (S.role === "owner" && !DEMO) steps.push({ title: "Who can assign", target: () => visible($("access-btn")) || visible($("more-btn")),
     body: "<p>Only you see <b>Access</b>. Add a BC or AC by city email to give them Command. Everyone else who signs up gets the read-only crew view.</p>" });
   steps.push({ title: "Last step: Finalize", target: () => visible($("finalize-btn")), before: hideSidebar,
     body: "<p>When everyone is assigned, tap <b>Finalize</b>. It runs a final check (uncovered parties, pin problems, a unit booked twice at the same time). <b>Fix</b> each item or <b>Accept</b> it, for example a party that canceled.</p><p class='mt-2'>Finalizing <b>locks the map</b> and gives you a ready-made email for the department, with the link and instructions. Use <b>Unlock to edit</b> for last-minute changes.</p>" });
@@ -894,7 +896,7 @@ function commandSteps() {
 
 function crewSteps() {
   return [
-    { title: "Welcome to the NNO map", body: "<p>This shows where every Denton Fire unit is going for National Night Out, and when.</p><p class='mt-2'>About 30 seconds. Replay it anytime with the <b>?</b> button.</p>" },
+    { title: "Welcome to the NNO map", body: "<p>This shows where every Denton Fire unit is going for National Night Out, and when.</p><p class='mt-2'>About 30 seconds. Replay it anytime with the <b>?</b> button (on a phone: <b>⋯</b> → Walkthrough).</p>" },
     { title: "My Unit", target: () => visible($("mine-pane")), before: showSidebar("mine"),
       body: "<p>Pick the unit you're on tonight (this phone remembers it). You'll see <b>where you're going and when</b>, with Google or Apple Maps directions for each stop.</p>" },
     { title: "Why out of district?", target: () => visible($("mine-pane")), before: showSidebar("mine"),
@@ -1211,6 +1213,25 @@ function wireUI() {
   document.querySelectorAll("dialog").forEach(d => d.addEventListener("click", e => { if (e.target === d) d.close(); }));
 
   $("help-btn").addEventListener("click", startTour);
+
+  const MORE = [["import-btn", "Import spreadsheet"], ["access-btn", "Command access"], ["help-btn", "Walkthrough"], ["logout-btn", "Sign out"]];
+  const closeMore = () => { $("more-menu").classList.add("hidden"); $("more-btn").setAttribute("aria-expanded", "false"); };
+  $("more-btn").addEventListener("click", e => {
+    e.stopPropagation();
+    const menu = $("more-menu");
+    if (!menu.classList.contains("hidden")) return closeMore();
+    menu.innerHTML = MORE.filter(([id]) => !$(id).classList.contains("hidden"))
+      .map(([id, label]) => `<button role="menuitem" data-proxy="${id}" class="w-full text-left px-4 py-3 text-[13px] font-bold text-navy hover:bg-slate-50${id === "logout-btn" ? " text-red border-t border-slate-100 mt-1" : ""}">${label}</button>`).join("");
+    menu.classList.remove("hidden");
+    $("more-btn").setAttribute("aria-expanded", "true");
+  });
+  $("more-menu").addEventListener("click", e => {
+    const b = e.target.closest("[data-proxy]");
+    if (!b) return;
+    closeMore();
+    $(b.dataset.proxy).click();
+  });
+  document.addEventListener("click", e => { if (!e.target.closest("#more-menu, #more-btn")) closeMore(); });
 
   $("qr-fab").addEventListener("click", () => {
     const box = $("qr-code");

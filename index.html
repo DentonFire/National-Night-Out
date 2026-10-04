@@ -23,7 +23,7 @@
             }
         }
     </script>
-    <link rel="stylesheet" href="css/app.css?v=202610041833">
+    <link rel="stylesheet" href="css/app.css?v=202610041838">
 </head>
 <body class="h-full overflow-hidden bg-slate-100 font-sans text-navy antialiased">
 
@@ -85,24 +85,25 @@
                 </button>
                 <img src="https://files.constantcontact.com/3720c3fd901/10017eb4-f7d2-424d-92ed-c1b5424b9869.png" alt="" class="h-9 sm:h-10">
                 <div class="min-w-0">
-                    <h1 class="text-navy font-black uppercase text-sm sm:text-base leading-none truncate">National Night Out</h1>
+                    <h1 class="text-navy font-black uppercase text-sm sm:text-base leading-none truncate"><span class="sm:hidden">NNO Map</span><span class="hidden sm:inline">National Night Out</span></h1>
                     <div class="flex items-center gap-2 mt-1">
                         <span id="status-dot" class="w-2 h-2 rounded-full bg-yellow-400"></span>
                         <p id="status-text" class="text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate">Connecting...</p>
                     </div>
                 </div>
             </div>
-            <div class="hidden md:flex gap-6 items-center border-l border-r border-gray-100 px-6">
-                <div class="text-center"><span id="stat-parties" class="tnum block text-2xl font-black text-navy leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Parties</span></div>
-                <div class="text-center"><span id="stat-units" class="tnum block text-2xl font-black text-navy leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Units out</span></div>
-                <div class="text-center"><span id="stat-open" class="tnum block text-2xl font-black text-red leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Need a unit</span></div>
+            <div class="hidden xl:flex gap-6 items-center border-l border-r border-gray-100 px-6 shrink-0">
+                <div class="text-center"><span id="stat-parties" class="tnum block text-2xl font-black text-navy leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">Parties</span></div>
+                <div class="text-center"><span id="stat-units" class="tnum block text-2xl font-black text-navy leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">Units out</span></div>
+                <div class="text-center"><span id="stat-open" class="tnum block text-2xl font-black text-red leading-none">--</span><span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest whitespace-nowrap">Need a unit</span></div>
             </div>
-            <div class="flex items-center gap-2">
-                <span id="role-pill" class="hidden sm:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full"></span>
+            <div class="flex items-center gap-2 shrink-0">
+                <span id="role-pill" class="hidden xl:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full"></span>
                 <button id="finalize-btn" class="hidden bg-yellow hover:brightness-95 text-navy text-[10px] font-black py-2.5 px-3 sm:px-4 rounded-lg shadow uppercase tracking-widest items-center gap-2">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.4" d="M5 13l4 4L19 7"/></svg>
                     <span id="finalize-label">Finalize</span>
                 </button>
+                <div class="hidden sm:flex items-center gap-2">
                 <button id="import-btn" class="hidden bg-navy hover:bg-navy-light text-white text-[10px] font-black py-2.5 px-3 sm:px-4 rounded-lg shadow uppercase tracking-widest items-center gap-2">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                     <span class="hidden sm:inline">Import</span>
@@ -115,8 +116,22 @@
                 <button id="logout-btn" class="text-gray-400 hover:text-red p-2" aria-label="Sign out">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
                 </button>
+                </div>
+                <div class="relative sm:hidden">
+                    <button id="more-btn" class="w-10 h-10 rounded-lg border-2 border-slate-200 text-navy flex items-center justify-center" aria-label="More actions" aria-haspopup="menu" aria-expanded="false">
+                        <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                    </button>
+                    <div id="more-menu" role="menu" class="hidden absolute right-0 top-12 w-56 bg-white rounded-xl shadow-floating border border-slate-200 py-1.5 z-[90]"></div>
+                </div>
             </div>
         </header>
+
+        <!-- Stats strip: phones and tablets (the header holds these on wide screens) -->
+        <div id="stats-strip" class="xl:hidden shrink-0 bg-white border-b border-gray-200 px-3 py-1.5 flex items-center justify-center gap-4 sm:gap-8 text-[10px] font-bold uppercase tracking-widest text-gray-400 whitespace-nowrap overflow-x-auto no-scrollbar">
+            <span><b id="strip-parties" class="tnum text-navy text-[13px] font-black mr-1">--</b>Parties</span>
+            <span><b id="strip-units" class="tnum text-navy text-[13px] font-black mr-1">--</b>Units out</span>
+            <span><b id="strip-open" class="tnum text-red text-[13px] font-black mr-1">--</b>Need a unit</span>
+        </div>
 
         <div id="locked-banner" class="hidden shrink-0 bg-navy text-white px-4 py-2 items-center justify-center gap-3 flex-wrap text-[11px] font-bold z-[69]">
             <span class="flex items-center gap-2"><svg class="w-4 h-4 text-yellow" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg><span id="locked-text">Map locked. Assignments are final.</span></span>
@@ -287,16 +302,16 @@
     <script type="importmap">
     {
       "imports": {
-        "./js/config.js": "./js/config.js?v=202610041833",
-        "./js/roster.js": "./js/roster.js?v=202610041833",
-        "./js/icons.js": "./js/icons.js?v=202610041833",
-        "./js/geo.js": "./js/geo.js?v=202610041833",
-        "./js/store.js": "./js/store.js?v=202610041833",
-        "./js/importer.js": "./js/importer.js?v=202610041833",
-        "./js/tour.js": "./js/tour.js?v=202610041833"
+        "./js/config.js": "./js/config.js?v=202610041838",
+        "./js/roster.js": "./js/roster.js?v=202610041838",
+        "./js/icons.js": "./js/icons.js?v=202610041838",
+        "./js/geo.js": "./js/geo.js?v=202610041838",
+        "./js/store.js": "./js/store.js?v=202610041838",
+        "./js/importer.js": "./js/importer.js?v=202610041838",
+        "./js/tour.js": "./js/tour.js?v=202610041838"
       }
     }
     </script>
-    <script type="module" src="js/app.js?v=202610041833"></script>
+    <script type="module" src="js/app.js?v=202610041838"></script>
 </body>
 </html>
