@@ -120,7 +120,7 @@ function wireAuth() {
       if (signUpMode) {
         await S.store.signUp(email, password);
         setSignUpMode(false);
-        loginMsg(`Account created. Open the verification link sent to ${email}, then sign in.`, true);
+        loginMsg(`Account created. Open the link sent to ${email}, then sign in. If the link says it expired or was already used, city email security opened it first: you are verified, just sign in.`, true);
       } else {
         await S.store.signIn(email, password);
       }
