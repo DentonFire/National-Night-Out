@@ -4,6 +4,7 @@ import { vehicleSVG, mayorSVG } from "./icons.js";
 import { loadDistricts, fireDistrictAt } from "./geo.js";
 import { firebaseStore, demoStore, isCityEmail } from "./store.js";
 import { parseWorkbook, fillMissingPins } from "./importer.js";
+import { runTour, seenTour } from "./tour.js";
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -216,7 +217,9 @@ function startApp() {
   $("role-pill").className = `hidden sm:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${cmd ? "bg-navy text-yellow" : "bg-slate-100 text-slate-500"}`;
   $("import-btn").classList.toggle("hidden", !cmd);
   $("import-btn").classList.toggle("flex", cmd);
-  $("access-btn").classList.toggle("hidden", S.role !== "owner" || DEMO);
+  const owner = S.role === "owner" && !DEMO;
+  $("access-btn").classList.toggle("hidden", !owner);
+  $("access-btn").classList.toggle("flex", owner);
   $("tab-mine").classList.toggle("hidden", cmd);
   $("tab-coverage").classList.toggle("hidden", !cmd);
   if (S.tabRole !== cmd) {
@@ -242,6 +245,7 @@ function startApp() {
       setStatus(true);
       $("map-loading").classList.add("hidden");
       render();
+      maybeStartTour();
     }, err => {
       console.error(err);
       setStatus(false, err.code === "permission-denied" ? "No access: ask Command" : "Connection error");
@@ -672,6 +676,80 @@ function wireMine() {
   });
 }
 
+// ------------------------------------------------------------- walkthrough
+
+const tourRole = () => (isCommand() ? "command" : "crew");
+let tourChecked = null;
+function maybeStartTour() {
+  if (tourChecked === tourRole()) return;
+  tourChecked = tourRole();
+  if (params.has("tour") || !seenTour(tourRole())) setTimeout(startTour, 600);
+}
+
+const first = sel => document.querySelector(sel);
+const visible = el => el && el.getBoundingClientRect().width > 0 ? el : null;
+const samplePin = () => visible(first(".pm:not(.dim) .pm-pin"));
+const sampleChipOnMap = () => visible(first(".pm-units .chip[data-unit]"));
+const showSidebar = tab => () => { setTab(tab); if (isMobile()) openSidebar(); };
+const hideSidebar = () => { if (isMobile()) closeSidebar(); };
+function openSampleParty() {
+  const p = S.parties.find(q => fdUnits(q).length) || S.parties[0];
+  if (p) selectParty(p.id, { fly: true });
+}
+
+function commandSteps() {
+  const steps = [
+    { title: "Welcome to NNO Command", body: "<p>This is where Battalion Chiefs and the Assistant Chief put units on National Night Out parties. Crews see your assignments live on their phones.</p><p class='mt-2'>This takes about a minute. You can replay it anytime with the <b>?</b> button.</p>" },
+    { title: "The roster", target: () => visible($("units-pane")), before: showSidebar("units"),
+      body: "<p>Every station's assignable units. The number is the station and its fire district: <b>M5</b> is home in District 5.</p><p class='mt-2'>The count on the right is how many parties that unit covers.</p>" },
+    { title: "Drag a unit onto a party", target: () => visible(first("#units-pane .chip.draggable")), before: showSidebar("units"),
+      body: "<p>Point at a unit until the cursor becomes an <b>open hand</b>, then drag it onto a party pin and let go.</p><p class='mt-2'>A unit can cover several parties through the evening.</p>" },
+    { title: "Or tap, then tap", target: () => visible(first("#units-pane .unit-row")), before: showSidebar("units"),
+      body: "<p>Prefer tapping (easier on a phone)? Tap a unit, and every party lights up with a <b>yellow ring</b>. Tap the parties it should cover, then tap <b>Done</b>.</p>" },
+    { title: "Party pins", target: samplePin, before: hideSidebar,
+      body: "<p>Each pin is a party. Its color and number are the <b>start time</b>. A pulsing <b class='text-red'>red ring</b> means no fire unit yet.</p><p class='mt-2'>Chips beside a pin show who's going: fire units, <b>PD</b> where police were requested, and the <b>Mayor</b>.</p>" },
+    { title: "Move or remove a unit", target: () => sampleChipOnMap() || samplePin(), before: hideSidebar,
+      body: "<p>Grab a unit chip on the map and drop it on <b>another party</b> to move it.</p><p class='mt-2'>Drop it on the <b>roster</b>, or the red <b>Drop here to unassign</b> target at the bottom, to remove it.</p>" },
+    { title: "Out of district", target: () => visible(first(".pm-units .chip.out")) || sampleChipOnMap() || samplePin(), before: hideSidebar,
+      body: "<p>A <b class='bg-yellow px-1 rounded'>yellow chip marked OUT</b> is a unit working outside its home district. Crews see why on their phones.</p>" },
+    { title: "The party card", target: () => visible($("detail")), before: openSampleParty,
+      body: "<p>Tap any party to open its card:</p><ul class='tour-list'><li>Address, notes, time and expected attendance</li><li><b>Google Maps</b> / <b>Apple Maps</b> directions</li><li><b>Add a unit</b> from the list, or remove one with <b>×</b></li><li>Switch the <b>Mayor</b> on or off</li><li><b>Move pin</b> if a location is wrong</li></ul>" },
+    { title: "Coverage", target: () => visible($("coverage-pane")), before: () => { selectParty(null); showSidebar("coverage")(); },
+      body: "<p>Parties per district against the units at each station. <b class='text-amber-600'>Yellow bars</b> are districts with more parties than home units (usually Six). <b>Still open</b> lists parties with no unit yet.</p>" },
+    { title: "Import an updated sheet", target: () => visible($("import-btn")), before: hideSidebar,
+      body: "<p>When Community Engagement sends a new spreadsheet, import it here. Host names are skipped, and your assignments, the Mayor and moved pins are kept.</p>" },
+  ];
+  if (S.role === "owner" && !DEMO) steps.push({ title: "Who can assign", target: () => visible($("access-btn")),
+    body: "<p>Only you see <b>Access</b>. Add a BC or AC by city email to give them Command. Everyone else who signs up gets the read-only crew view.</p>" });
+  steps.push({ title: "You're set", body: "<p>Changes save instantly and show up for everyone. Tap <b>?</b> anytime to see this again.</p>" });
+  return steps;
+}
+
+function crewSteps() {
+  return [
+    { title: "Welcome to the NNO map", body: "<p>This shows where every Denton Fire unit is going for National Night Out, and when.</p><p class='mt-2'>About 30 seconds. Replay it anytime with the <b>?</b> button.</p>" },
+    { title: "My Unit", target: () => visible($("mine-pane")), before: showSidebar("mine"),
+      body: "<p>Pick the unit you're on tonight (this phone remembers it). You'll see <b>where you're going and when</b>, with Google or Apple Maps directions for each stop.</p>" },
+    { title: "Why out of district?", target: () => visible($("mine-pane")), before: showSidebar("mine"),
+      body: "<p>Parties aren't spread evenly. Some districts (often Six) have far more parties than units, and some have none. Further down you'll see <b>who's covering your district</b> and a <b>citywide table</b> showing where help is needed.</p>" },
+    { title: "The map", target: samplePin, before: hideSidebar,
+      body: "<p>Each pin is a party, colored by <b>start time</b>. Chips show who's going. A <b class='bg-yellow px-1 rounded'>yellow OUT</b> chip is a unit helping outside its home district.</p>" },
+    { title: "Party details", target: () => visible($("detail")), before: openSampleParty,
+      body: "<p>Tap any party for its address, time, notes and who's attending, plus <b>Google Maps</b> and <b>Apple Maps</b> buttons for directions.</p>" },
+    { title: "You're set", before: () => { selectParty(null); showSidebar("mine")(); },
+      body: "<p>Assignments update live as the chiefs make them. Tap <b>?</b> anytime to see this again.</p>" },
+  ];
+}
+
+function startTour() {
+  disarm();
+  S.selectedUnit = null;
+  const role = tourRole();
+  runTour(role, role === "command" ? commandSteps() : crewSteps(), {
+    onEnd: () => { selectParty(null); setTab(role === "command" ? "units" : "mine"); if (isMobile()) (role === "command" ? closeSidebar() : openSidebar()); },
+  });
+}
+
 // ------------------------------------------------------------- selection
 
 function selectParty(id, { fly = false } = {}) {
@@ -964,6 +1042,8 @@ function wireUI() {
 
   document.querySelectorAll("dialog .dialog-close").forEach(b => b.addEventListener("click", () => b.closest("dialog").close()));
   document.querySelectorAll("dialog").forEach(d => d.addEventListener("click", e => { if (e.target === d) d.close(); }));
+
+  $("help-btn").addEventListener("click", startTour);
 
   $("qr-fab").addEventListener("click", () => {
     const box = $("qr-code");
