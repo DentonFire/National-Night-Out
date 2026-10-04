@@ -81,8 +81,14 @@ export async function firebaseStore() {
       }),
 
     // Upsert from the spreadsheet. Keeps assignments, Mayor flags and hand-moved pins.
-    async importParties(list, existing) {
+    // replace: new year. Drop parties not in the sheet and start every party with no assignments.
+    async importParties(list, existing, { replace = false } = {}) {
       const batch = F.writeBatch(db);
+      if (replace) {
+        const keep = new Set(list.map(p => p.id));
+        for (const id of existing.keys()) if (!keep.has(id)) batch.delete(F.doc(db, "parties", id));
+        existing = new Map();
+      }
       for (const p of list) {
         const prev = existing.get(p.id);
         const keepPin = prev?.pinMoved;
@@ -174,7 +180,12 @@ export function demoStore(initialRole = "command") {
       try { localStorage.setItem(DEMO_EVENT_KEY, JSON.stringify(event)); } catch { /* storage blocked */ }
       eventListeners.forEach(cb => cb({ ...event }));
     },
-    async importParties(list, existing) {
+    async importParties(list, existing, { replace = false } = {}) {
+      if (replace) {
+        const keep = new Set(list.map(p => p.id));
+        parties = parties.filter(p => keep.has(p.id));
+        existing = new Map();
+      }
       for (const p of list) {
         const prev = existing.get(p.id);
         const next = { ...p, units: prev?.units || [], mayor: Boolean(prev?.mayor || p.mayor) };

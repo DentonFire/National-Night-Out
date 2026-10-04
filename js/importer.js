@@ -1,4 +1,4 @@
-// Reads the Community Engagement NNO spreadsheet in the browser and turns each row into a party.
+// Reads the Community Risk Reduction Officer's NNO spreadsheet in the browser and turns each row into a party.
 // The host-name column is never read into a party: it is matched only so it can be skipped.
 
 import { fireDistrictAt } from "./geo.js";

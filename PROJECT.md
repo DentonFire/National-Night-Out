@@ -28,7 +28,7 @@ house style of the other `dentonfire.github.io` tools (Water-Shutoff is the clos
 
 ## Data handling
 
-- Party data comes from the Community Engagement spreadsheet. Command imports it in the app
+- Party data comes from the Community Risk Reduction Officer's spreadsheet. Command imports it in the app
   (Import button). The browser parses it and **drops the Party Host Name column before anything
   is written**. Host names never reach Firestore or the repo.
 - The spreadsheet itself stays out of this repo (`.gitignore` blocks `*.xlsx` and `*.csv`).

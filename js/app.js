@@ -444,7 +444,7 @@ function renderUnits() {
 function renderParties() {
   const pane = $("parties-pane");
   if (!S.parties.length) {
-    pane.innerHTML = `<div class="p-6 text-center text-blue-100/80 text-sm">${isCommand() ? "No parties yet. Use <b class='text-white'>Import</b> to load the spreadsheet from Community Engagement." : "No parties yet. Command will load them before the event."}</div>`;
+    pane.innerHTML = `<div class="p-6 text-center text-blue-100/80 text-sm">${isCommand() ? "No parties yet. Use <b class='text-white'>Import</b> to load the spreadsheet from the Community Risk Reduction Officer." : "No parties yet. Command will load them before the event."}</div>`;
     return;
   }
   pane.innerHTML = S.parties.map(p => {
@@ -881,8 +881,8 @@ function commandSteps() {
       body: "<p>Tap any party to open its card:</p><ul class='tour-list'><li>Address, notes, time and expected attendance</li><li><b>Google Maps</b> / <b>Apple Maps</b> directions</li><li><b>Add a unit</b> from the list, or remove one with <b>×</b></li><li>Switch the <b>Mayor</b> on or off</li><li><b>Move pin</b> if a location is wrong</li></ul>" },
     { title: "Coverage", target: () => visible($("coverage-pane")), before: () => { selectParty(null); showSidebar("coverage")(); },
       body: "<p>Parties per district against the units at each station. <b class='text-amber-600'>Yellow bars</b> are districts with more parties than home units (usually Six). <b>Still open</b> lists parties with no unit yet.</p>" },
-    { title: "Import an updated sheet", target: () => visible($("import-btn")), before: hideSidebar,
-      body: "<p>When Community Engagement sends a new spreadsheet, import it here. Host names are skipped, and your assignments, the Mayor and moved pins are kept.</p>" },
+    { title: "Next year's NNO: import the new sheet", target: () => visible($("import-btn")), before: hideSidebar,
+      body: "<p>Each year the <b>Community Risk Reduction Officer</b> sends the party spreadsheet. Import it here and tick <b>New year: replace all parties</b> to clear last year's parties and assignments.</p><p class='mt-2'>If an <b>updated</b> sheet comes in before the event, import it without that box: assignments, the Mayor and moved pins are kept. Host names are always skipped.</p>" },
   ];
   if (S.role === "owner" && !DEMO) steps.push({ title: "Who can assign", target: () => visible($("access-btn")),
     body: "<p>Only you see <b>Access</b>. Add a BC or AC by city email to give them Command. Everyone else who signs up gets the read-only crew view.</p>" });
@@ -1245,6 +1245,7 @@ function wireImport() {
     $("import-preview").innerHTML = "";
     $("import-msg").className = "hidden";
     $("import-confirm").disabled = true;
+    $("import-replace").checked = false;
     $("import-dialog").showModal();
   });
 
@@ -1284,9 +1285,17 @@ function wireImport() {
     if (!pending) return;
     $("import-confirm").disabled = true;
     try {
-      await S.store.importParties(pending, S.byId);
+      const replace = $("import-replace").checked;
+      if (replace) {
+        const gone = S.parties.filter(p => !pending.some(q => q.id === p.id)).length;
+        if (!confirm(`Replace all parties for a new year?\n\n${gone} part${gone === 1 ? "y" : "ies"} not in this sheet will be removed, and every unit assignment and Mayor stop will be cleared.`)) {
+          $("import-confirm").disabled = false;
+          return;
+        }
+      }
+      await S.store.importParties(pending, S.byId, { replace });
       $("import-dialog").close();
-      toast(`${pending.length} parties imported`);
+      toast(replace ? `New year loaded: ${pending.length} parties, no assignments yet` : `${pending.length} parties imported`);
     } catch (e) { fail(e); $("import-confirm").disabled = false; }
   });
 }
