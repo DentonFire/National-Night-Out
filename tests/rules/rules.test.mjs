@@ -23,7 +23,7 @@ const pdoc = db => doc(db,'parties',partyId);
 
 describe('National Night Out authorization and data boundaries', {concurrency:false}, () => {
   before(async () => {
-    env=await initializeTestEnvironment({projectId,firestore:{host,port:Number(port),rules:readFileSync(new URL('../../firestore.rules',import.meta.url),'utf8')}});
+    env=await initializeTestEnvironment({projectId,firestore:{host,port:Number(port),rules:readFileSync(process.env.RULES_FILE || new URL('../../firestore.rules',import.meta.url),'utf8')}});
   });
   after(async()=>{await env?.cleanup();});
   beforeEach(async()=>{
