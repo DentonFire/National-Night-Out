@@ -18,6 +18,27 @@ body { font-family: 'Inter', sans-serif; font-feature-settings: "cv11", "ss01"; 
 
 /* ---- sign in (from Water-Shutoff) */
 #login-overlay { background-color: var(--navy); background-image: url('https://www.transparenttextures.com/patterns/cubes.png'), radial-gradient(circle at top right, var(--navy-light), var(--navy)); }
+/* A short landscape screen must scroll. Centering a too-tall card clips the title and the instructions. */
+#login-overlay,
+#verify-modal {
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+#login-overlay > div,
+#verify-modal > div { margin-top: auto; margin-bottom: auto; flex: 0 0 auto; }
+#auth-toggle,
+#forgot-btn {
+  min-height: 44px;
+  padding-inline: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .scan-line-gradient { background: linear-gradient(90deg, var(--navy) 0%, #ef4444 50%, var(--navy) 100%); background-size: 200% 100%; }
 .animate-scan { animation: scan 3s linear infinite; }
 @keyframes scan { from { background-position: 200% 0; } to { background-position: 0 0; } }
@@ -133,6 +154,9 @@ body { font-family: 'Inter', sans-serif; font-feature-settings: "cv11", "ss01"; 
 /* ---- dialogs and toast */
 dialog.modal { border: 0; border-radius: 16px; padding: 0; box-shadow: 0 25px 50px -12px rgba(15, 23, 42, .45); color: var(--navy); }
 dialog.modal::backdrop { background: rgba(21, 42, 64, .7); backdrop-filter: blur(3px); }
+/* On a short screen the message scrolls and Copy / Finalize stay in the first view. */
+#notify-body { max-height: min(320px, max(88px, calc(100svh - 300px))); }
+#finalize-issues { max-height: min(48vh, max(96px, calc(100svh - 260px))); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; z-index: 30000; background: var(--navy); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 12px; font-weight: 700; box-shadow: 0 10px 30px -8px rgba(21,42,64,.5); transition: opacity .2s, transform .25s cubic-bezier(.16, 1, .3, 1); pointer-events: none; max-width: 90vw; text-align: center; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.error { background: var(--red); }
@@ -149,6 +173,7 @@ dialog.modal::backdrop { background: rgba(21, 42, 64, .7); backdrop-filter: blur
 .pick:hover { box-shadow: 0 0 0 2px var(--yellow); }
 .pick:active { transform: scale(.96); }
 .my-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 10px 4px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.08); }
+[data-change-unit] { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding-inline: 8px; }
 .sec { padding: 18px 16px 8px; color: #fff; font-weight: 900; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
 .stop-card { margin: 0 10px 8px; padding: 12px; border-radius: 14px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.08); cursor: pointer; transition: background .15s; }
 .stop-card:hover { background: rgba(255,255,255,.12); }
