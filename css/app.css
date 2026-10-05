@@ -133,6 +133,9 @@ body { font-family: 'Inter', sans-serif; font-feature-settings: "cv11", "ss01"; 
 /* ---- dialogs and toast */
 dialog.modal { border: 0; border-radius: 16px; padding: 0; box-shadow: 0 25px 50px -12px rgba(15, 23, 42, .45); color: var(--navy); }
 dialog.modal::backdrop { background: rgba(21, 42, 64, .7); backdrop-filter: blur(3px); }
+/* On a short screen the message scrolls and Copy / Finalize stay in the first view. */
+#notify-body { max-height: min(320px, max(88px, calc(100svh - 300px))); }
+#finalize-issues { max-height: min(48vh, max(96px, calc(100svh - 260px))); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; z-index: 30000; background: var(--navy); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 12px; font-weight: 700; box-shadow: 0 10px 30px -8px rgba(21,42,64,.5); transition: opacity .2s, transform .25s cubic-bezier(.16, 1, .3, 1); pointer-events: none; max-width: 90vw; text-align: center; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.error { background: var(--red); }
