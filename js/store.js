@@ -65,16 +65,21 @@ export async function firebaseStore() {
     mode: "live",
 
     onAuth(cb) {
-      return A.onAuthStateChanged(auth, async user => {
+      let revision = 0, active = true;
+      const unsubscribe = A.onAuthStateChanged(auth, async user => {
+        const turn = ++revision;
         if (!user) return cb({ user: null });
+        if (!isCityEmail(user.email || "")) { await A.signOut(auth); return; }
         if (!user.emailVerified) return cb({ user, unverified: true });
         let role = "crew";
         try {
           const snap = await F.getDoc(F.doc(db, "roles", user.email.toLowerCase()));
           if (snap.exists()) role = snap.data().role;
         } catch (e) { /* no role doc readable: crew */ }
-        cb({ user, role });
+        // A role lookup can finish after sign-out or a different person's sign-in.
+        if (active && turn === revision && auth.currentUser === user) cb({ user, role });
       });
+      return () => { active = false; revision++; unsubscribe(); };
     },
     async signIn(email, password) {
       await A.setPersistence(auth, A.browserLocalPersistence);

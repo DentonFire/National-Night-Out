@@ -172,8 +172,8 @@ function wireAuth() {
 
   $("verify-resend").addEventListener("click", () =>
     S.store.resendVerification().then(() => toast("Verification email sent")).catch(fail));
-  $("verify-cancel").addEventListener("click", () => S.store.signOut());
-  $("logout-btn").addEventListener("click", () => { if (DEMO || confirm("Sign out of the NNO map?")) S.store.signOut(); });
+  $("verify-cancel").addEventListener("click", signOut);
+  $("logout-btn").addEventListener("click", () => { if (DEMO || confirm("Sign out of the NNO map?")) signOut(); });
 }
 
 function setSignUpMode(on) {
@@ -185,15 +185,41 @@ function setSignUpMode(on) {
   $("login-msg").classList.add("hidden");
 }
 
+async function signOut() {
+  if (!DEMO) handleAuth({ user: null }); // Clear the screen before the auth operation can fail.
+  try { await S.store.signOut(); }
+  catch (err) { toast("Couldn't finish signing out. Reload and sign out again.", true); }
+}
+
+function clearAuthState() {
+  S.user = null; S.role = "crew";
+  S.unsubscribe?.(); S.unsubscribe = null;
+  S.unsubEvent?.(); S.unsubEvent = null;
+  // Let the tour clean up its keyboard/resize handlers before clearing its seen-state.
+  if ($("tour")) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
+  disarm(); stopEdgePan();
+  S.map?.remove(); S.map = null;
+  S.markers.clear(); S.markerHtml.clear(); S.routeLine = null;
+  S.districtLayer = null; S.districtLabels = [];
+  S.parties = []; S.byId.clear(); S.event = {};
+  S.selectedParty = null; S.selectedUnit = null; S.movingPin = null;
+  S.myUnit = null; S.tabRole = null; S.timeFilter = "all"; S.lastSync = null;
+  S.sync = { parties: null, event: null }; S.syncErrors = { parties: null, event: null };
+  tourChecked = null;
+  for (const id of ["mine-pane", "units-pane", "parties-pane", "coverage-pane", "detail", "access-list", "import-preview"]) $(id).replaceChildren();
+  $("password").value = ""; $("verify-target").textContent = "";
+  $("map-loading").classList.remove("hidden");
+  try {
+    for (const key of [MY_UNIT_KEY, "nno-tour-crew-v1", "nno-tour-command-v1"]) localStorage.removeItem(key);
+  } catch { /* storage blocked */ }
+}
+
 function handleAuth({ user, unverified, role }) {
   clearInterval(verifyTimer);
   $("verify-modal").classList.add("hidden");
   if (!user) {
-    S.user = null;
-    S.unsubscribe?.();
-    S.unsubscribe = null;
-    S.unsubEvent?.();
-    S.unsubEvent = null;
+    clearAuthState();
     $("app").classList.add("hidden");
     $("app").classList.remove("flex");
     $("login-overlay").style.display = "flex";
@@ -201,7 +227,9 @@ function handleAuth({ user, unverified, role }) {
     $("secure-text").textContent = "Secure sign-in";
     return;
   }
+  if (S.user && S.user !== user) clearAuthState();
   if (unverified) {
+    $("app").classList.add("hidden");
     $("verify-target").textContent = user.email;
     $("verify-modal").classList.remove("hidden");
     verifyTimer = setInterval(async () => {
@@ -228,6 +256,7 @@ function handleAuth({ user, unverified, role }) {
 // ------------------------------------------------------------- app
 
 function startApp() {
+  const activeUser = S.user;
   const cmd = isCommand();
   $("role-pill").textContent = cmd ? "Command" : "Crew";
   $("role-pill").className = `hidden xl:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${cmd ? "bg-navy text-yellow" : "bg-slate-100 text-slate-500"}`;
@@ -254,6 +283,7 @@ function startApp() {
   initMap();
   if (!S.unsubEvent) {
     S.unsubEvent = S.store.subscribeEvent((ev, metadata) => {
+      if (S.user !== activeUser) return;
       S.sync.event = metadata || { fromCache: false, hasPendingWrites: false };
       S.syncErrors.event = null;
       const wasFinal = Boolean(S.event.finalized);
@@ -270,6 +300,7 @@ function startApp() {
   applyLock();
   if (!S.unsubscribe) {
     S.unsubscribe = S.store.subscribeParties((parties, metadata) => {
+      if (S.user !== activeUser) return;
       S.sync.parties = metadata || { fromCache: false, hasPendingWrites: false };
       S.syncErrors.parties = null;
       S.parties = parties.sort(byTime);
@@ -316,7 +347,7 @@ addEventListener("offline", setStatus);
 // ------------------------------------------------------------- map
 
 function initMap() {
-  if (S.map) { setTimeout(() => S.map.invalidateSize(), 50); return; }
+  if (S.map) { setTimeout(() => S.map?.invalidateSize(), 50); return; }
   S.map = L.map("map", { zoomControl: false, attributionControl: true }).setView(MAP_CENTER, 12);
   // CARTO basemaps started requiring an API key in 2026; Esri's street map needs none.
   // Light gray base + street labels keeps colored pins and unit chips readable.
@@ -328,7 +359,9 @@ function initMap() {
   L.control.zoom({ position: "bottomright" }).addTo(S.map);
 
   S.map.createPane("districtLabels").style.zIndex = 450; // above shapes, below pins (600)
+  const activeMap = S.map;
   loadDistricts().then(geo => {
+    if (!S.user || S.map !== activeMap) return;
     S.districtLayer = L.geoJSON(geo, { style: districtStyle, interactive: false }).addTo(S.map);
     S.districtLabels = geo.features.map(f => {
       const id = String(f.properties.districtid);
@@ -345,7 +378,7 @@ function initMap() {
   const syncLabels = () => $("map").classList.toggle("show-labels", S.map.getZoom() >= 14);
   S.map.on("zoomend", syncLabels);
   S.map.on("click", () => { if (!S.movingPin) selectParty(null); });
-  setTimeout(() => S.map.invalidateSize(), 50);
+  setTimeout(() => S.map?.invalidateSize(), 50);
 }
 
 function districtStyle(f) {
@@ -942,6 +975,7 @@ function crewSteps() {
 }
 
 function startTour() {
+  if (!S.user) return;
   disarm();
   S.selectedUnit = null;
   const role = tourRole();

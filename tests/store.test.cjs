@@ -148,3 +148,17 @@ test('untrusted stored fields cannot reach raw time attributes or coordinate URL
   // Text is preserved for esc() at the renderer, so legitimate punctuation isn't lost.
   assert.equal(received[0].name,'Synthetic <img src=x>');
 });
+
+
+test('a late role lookup cannot restore a signed-out user or leak an unsubscribed auth callback', async () => {
+  let callback, finish;
+  const user={email:'audit.owner@cityofdenton.com',emailVerified:true};
+  const auth={currentUser:user}, seen=[];
+  const store=await loadStore({A:{getAuth:()=>auth,onAuthStateChanged:(_,cb)=>{callback=cb;return()=>{};}},F:{doc:()=>({}),getDoc:()=>new Promise(resolve=>finish=resolve)}}).firebaseStore();
+  const off=store.onAuth(value=>seen.push(value));
+  const pending=callback(user);auth.currentUser=null;await callback(null);
+  finish({exists:()=>true,data:()=>({role:'owner'})});await pending;
+  assert.equal(seen.length,1);assert.equal(seen[0].user,null);
+  auth.currentUser=user;const late=callback(user);off();finish({exists:()=>true,data:()=>({role:'owner'})});await late;
+  assert.equal(seen.length,1);
+});

@@ -38,6 +38,19 @@ export const onSnapshot = (path, options, next, error) => {
   const submit=async(email,pass=password)=>{await page.locator('#email').fill(email);await page.locator('#password').fill(pass);await page.locator('#login-btn').click();await page.waitForFunction(()=>!document.querySelector('#login-btn').disabled);};
   await submit('audit.outside@example.com');assert.match(await page.locator('#login-msg').innerText(),/Restricted/);
   await submit(`audit.unknown.${Date.now()}@cityofdenton.com`);assert.equal(await page.locator('#login-msg').innerText(),'Wrong email or password');
+  const signInRoute='**/accounts:signInWithPassword*';
+  await context.route(signInRoute,route=>route.fulfill({status:429,contentType:'application/json',body:JSON.stringify({error:{code:429,message:'TOO_MANY_ATTEMPTS_TRY_LATER'}})}));
+  await submit('audit.rate@cityofdenton.com');assert.match(await page.locator('#login-msg').innerText(),/Too many attempts/);
+  await context.unroute(signInRoute);
+  await context.route(signInRoute,route=>route.abort('internetdisconnected'));
+  await submit('audit.offline@cityofdenton.com');assert.match(await page.locator('#login-msg').innerText(),/No connection/);
+  await context.unroute(signInRoute);
+  const oobRoute='**/accounts:sendOobCode*';
+  await context.route(oobRoute,route=>route.abort('internetdisconnected'));
+  await page.locator('#email').fill('audit.offline@cityofdenton.com');await page.locator('#forgot-btn').click();
+  await page.waitForFunction(()=>!document.querySelector('#forgot-btn').disabled);
+  assert.match(await page.locator('#login-msg').innerText(),/network-request-failed/);
+  await context.unroute(oobRoute);
   await page.locator('#auth-toggle').click();await submit('audit.weak@cityofdenton.com','123');assert.match(await page.locator('#login-msg').innerText(),/at least 6/);
   const email=`audit.flow.${Date.now()}@cityofdenton.com`;
   await submit(email);assert.match(await page.locator('#login-msg').innerText(),/Account created/);
@@ -45,6 +58,10 @@ export const onSnapshot = (path, options, next, error) => {
   await page.locator('#auth-toggle').click();await submit(email,'Incorrect synthetic password');assert.equal(await page.locator('#login-msg').innerText(),'Wrong email or password');
   await submit(email);await page.locator('#verify-modal').waitFor({state:'visible'});
   assert.equal(await page.locator('#app').isVisible(),false);
+  await context.route(oobRoute,route=>route.fulfill({status:429,contentType:'application/json',body:JSON.stringify({error:{code:429,message:'TOO_MANY_ATTEMPTS_TRY_LATER'}})}));
+  await page.locator('#verify-resend').click();await page.waitForFunction(()=>document.querySelector('#toast').textContent.includes('auth/too-many-requests'));
+  assert.equal(await page.locator('#verify-modal').isVisible(),true);
+  await context.unroute(oobRoute);
   await page.locator('#verify-resend').click();await page.waitForFunction(()=>document.querySelector('#toast').textContent==='Verification email sent');
   await page.locator('#verify-cancel').click();await page.locator('#verify-modal').waitFor({state:'hidden'});
   await page.locator('#email').fill(`  ${email.toUpperCase()}  `);await page.locator('#forgot-btn').click();
@@ -78,6 +95,11 @@ export const onSnapshot = (path, options, next, error) => {
   await page.locator('#tab-parties').click();assert.match(await page.locator('#status-text').innerText(),/Cached/i);
   await page.evaluate(()=>window.__error('config/event','unavailable'));assert.match(await page.locator('#status-text').innerText(),/confirm map lock/i);
   await page.locator('#tab-units').click();assert.match(await page.locator('#status-text').innerText(),/confirm map lock/i);
+  await page.evaluate(()=>{window.__emit('parties',{fromCache:false,hasPendingWrites:false});window.__emit('config/event',{fromCache:false,hasPendingWrites:false});});
+  await context.setOffline(true);await page.waitForFunction(()=>document.querySelector('#status-text').textContent.includes('Offline'));
+  await context.setOffline(false);
+  await page.evaluate(()=>window.__emit('parties',{fromCache:true,hasPendingWrites:false}));
+  assert.doesNotMatch(await page.locator('#status-text').innerText(),/live.*synced/i);
   await page.setViewportSize({width:390,height:844});
   if(process.env.NNO_EVIDENCE_DIR){fs.mkdirSync(process.env.NNO_EVIDENCE_DIR,{recursive:true});await page.screenshot({path:`${process.env.NNO_EVIDENCE_DIR}/auth-synthetic-mobile.png`});}
   await page.setViewportSize({width:1440,height:900});
@@ -90,7 +112,21 @@ export const onSnapshot = (path, options, next, error) => {
   assert.equal(await page.locator('#detail a[href*="maps"]').count(),0);
   assert.equal(await page.locator('#time-filter img, #detail img, #parties-pane img').count(),0);
   assert.equal(await page.evaluate(()=>window.__auditXSS),undefined);
+  await page.locator('#detail-close').click();
+  await page.locator('#tab-mine').click();await page.locator('[data-pick-unit="E1"]').click();
+  assert.equal(await page.evaluate(()=>localStorage.getItem('nno-my-unit')),'E1');
+  await page.evaluate(()=>{localStorage.setItem('nno-tour-crew-v1','done');document.querySelector('#qr-dialog').showModal();});
+  await page.locator('#qr-dialog .dialog-close').click();
+  page.once('dialog',dialog=>dialog.accept());await page.locator('#logout-btn').click();
+  await page.locator('#app').waitFor({state:'hidden'});
+  assert.equal(await page.locator('#password').inputValue(),'');
+  assert.equal(await page.locator('#parties-pane [data-party]').count(),0);
+  assert.equal(await page.locator('dialog[open]').count(),0);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('nno-my-unit')),null);
+  assert.equal(await page.evaluate(()=>localStorage.getItem('nno-tour-crew-v1')),null);
+  await submit(email,nextPassword);await page.locator('#app').waitFor({state:'visible'});
+  await page.locator('#tab-mine').click();assert.match(await page.locator('#mine-pane').innerText(),/Which unit/);
   assert.deepEqual(errors,[]);assert.deepEqual(forbidden,[]);
-  console.log('PASS: domain, unknown/wrong login, weak/duplicate signup, unverified gate/resend, normalized reset, reused reset, old/new password, verification, metadata status/errors (Firestore stub)');
+  console.log('PASS: domain, unknown/wrong login, weak/duplicate signup, unverified gate/resend, normalized reset, reused reset, old/new password, verification, rate-limit/offline error handling, metadata status/errors, stored XSS, sign-out isolation (Firestore stub)');
  }finally{await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1});
