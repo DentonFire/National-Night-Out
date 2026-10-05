@@ -10,6 +10,7 @@ function loadStore({ A = {}, F = {}, local = new Map() } = {}) {
     : fs.readFileSync('js/store.js', 'utf8');
   source = source.replace(/import \{ firebaseConfig, ALLOWED_EMAIL_DOMAIN \} from "\.\/config.js";/,
     'const firebaseConfig = {}; const ALLOWED_EMAIL_DOMAIN = "@cityofdenton.com";');
+  source = source.replace('import { UNITS } from "./roster.js";', 'const UNITS = new Map([["E1",{}],["M1",{}]]);');
   source = source.replace(/export /g, '')
     .replace('import(`${FB}/firebase-app.js`)', 'Promise.resolve(APP)')
     .replace('import(`${FB}/firebase-auth.js`)', 'Promise.resolve(globalThis.A)')
@@ -128,4 +129,22 @@ test('updated imports preserve current server assignments and pins, not the stal
   assert.equal(writes.length,1);
   await store.importParties([{id:'synthetic',name:'Synthetic',mayor:false}],stale,{replace:true});
   assert.equal(writes[1][1].units.length,0);assert.equal(writes[1][1].mayor,false);
+});
+
+
+test('untrusted stored fields cannot reach raw time attributes or coordinate URLs', async () => {
+  let listener, received;
+  const F = { onSnapshot: (_, options, cb) => { listener=cb; return ()=>{}; } };
+  const store=await loadStore({F}).firebaseStore();store.subscribeParties(p=>received=p);
+  listener({metadata:{fromCache:false,hasPendingWrites:false},docs:[{id:'canonical',data:()=>({
+    id:'spoofed',name:'Synthetic <img src=x>',start:'17:00" onmouseover="alert(1)',end:'18:00',
+    lat:'33.2"><img src=x onerror="alert(1)">',lng:-97.1,units:['E1','unexpected','E1'],depts:['Synthetic department',{}],
+    partyHostName:'Synthetic forbidden field',
+  })}]});
+  assert.equal(received[0].id,'canonical');assert.equal(received[0].start,'');
+  assert.equal(received[0].lat,null);assert.equal(received[0].lng,null);
+  assert.equal(received[0].partyHostName,undefined);
+  assert.equal(received[0].units.length,1);assert.equal(received[0].depts.length,1);
+  // Text is preserved for esc() at the renderer, so legitimate punctuation isn't lost.
+  assert.equal(received[0].name,'Synthetic <img src=x>');
 });

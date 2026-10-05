@@ -10,10 +10,31 @@
 //   While finalized, Firestore rules refuse party changes until Command unlocks.
 
 import { firebaseConfig, ALLOWED_EMAIL_DOMAIN } from "./config.js";
+import { UNITS } from "./roster.js";
 
 const FB = "https://www.gstatic.com/firebasejs/11.6.1";
 
 export const isCityEmail = email => email.trim().toLowerCase().endsWith(ALLOWED_EMAIL_DOMAIN);
+
+// Treat previously stored documents as untrusted too, including documents predating the rules.
+// In particular, directions URLs and time-filter attributes must never receive raw strings.
+export function partyFromDoc(id, data) {
+  const p = { id };
+  for (const key of ["name", "address", "notes", "council", "attendance", "guests"]) {
+    p[key] = typeof data[key] === "string" ? data[key] : "";
+  }
+  for (const key of ["start", "end"]) {
+    p[key] = typeof data[key] === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(data[key]) ? data[key] : "";
+  }
+  const pin = Number.isFinite(data.lat) && Number.isFinite(data.lng)
+    && Math.abs(data.lat) <= 90 && Math.abs(data.lng) <= 180;
+  p.lat = pin ? data.lat : null; p.lng = pin ? data.lng : null;
+  p.fireDistrict = /^[1-9]$/.test(data.fireDistrict) ? String(data.fireDistrict) : null;
+  p.units = Array.isArray(data.units) ? [...new Set(data.units.filter(u => UNITS.has(u)))] : [];
+  p.depts = Array.isArray(data.depts) ? data.depts.filter(d => typeof d === "string") : [];
+  for (const key of ["police", "mayor", "pinMoved", "pinApprox"]) p[key] = data[key] === true;
+  return p;
+}
 
 // Local emulator mode for testing sign-up, verification and password reset without touching
 // production: ?emulator=1 on localhost only, with `firebase emulators:start` running (firebase.json).
@@ -80,7 +101,7 @@ export async function firebaseStore() {
 
     subscribeParties(cb, onError) {
       return F.onSnapshot(partiesCol, { includeMetadataChanges: true },
-        snap => cb(snap.docs.map(d => ({ ...d.data(), id: d.id })), {
+        snap => cb(snap.docs.map(d => partyFromDoc(d.id, d.data())), {
           fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites,
         }), onError);
     },
@@ -143,7 +164,7 @@ export async function firebaseStore() {
       });
     },
 
-    listRoles: async () => (await F.getDocs(F.collection(db, "roles"))).docs.map(d => ({ email: d.id, ...d.data() })),
+    listRoles: async () => (await F.getDocs(F.collection(db, "roles"))).docs.map(d => ({ ...d.data(), email: d.id })),
     setRole: (email, role) => F.setDoc(F.doc(db, "roles", email.trim().toLowerCase()), { role, ...stamp() }),
     removeRole: email => F.deleteDoc(F.doc(db, "roles", email)),
   };

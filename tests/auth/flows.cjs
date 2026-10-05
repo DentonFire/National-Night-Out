@@ -80,6 +80,16 @@ export const onSnapshot = (path, options, next, error) => {
   await page.locator('#tab-units').click();assert.match(await page.locator('#status-text').innerText(),/confirm map lock/i);
   await page.setViewportSize({width:390,height:844});
   if(process.env.NNO_EVIDENCE_DIR){fs.mkdirSync(process.env.NNO_EVIDENCE_DIR,{recursive:true});await page.screenshot({path:`${process.env.NNO_EVIDENCE_DIR}/auth-synthetic-mobile.png`});}
+  await page.setViewportSize({width:1440,height:900});
+  await page.evaluate(()=>window.__emit('parties',{fromCache:false,hasPendingWrites:false},[{
+    id:'synthetic-injection',name:'Synthetic <img src=x onerror="window.__auditXSS=1">',address:'Synthetic " address',notes:'<svg onload="window.__auditXSS=1">',council:'1',
+    start:'17:00"><img src=x onerror="window.__auditXSS=1">',end:'18:00',units:['E1'],depts:['<img src=x onerror="window.__auditXSS=1">'],
+    lat:'33.2"><img src=x onerror="window.__auditXSS=1">',lng:-97.1,fireDistrict:'1',
+  }]));
+  await page.locator('#tab-parties').click();await page.locator('#parties-pane [data-party="synthetic-injection"]').click();
+  assert.equal(await page.locator('#detail a[href*="maps"]').count(),0);
+  assert.equal(await page.locator('#time-filter img, #detail img, #parties-pane img').count(),0);
+  assert.equal(await page.evaluate(()=>window.__auditXSS),undefined);
   assert.deepEqual(errors,[]);assert.deepEqual(forbidden,[]);
   console.log('PASS: domain, unknown/wrong login, weak/duplicate signup, unverified gate/resend, normalized reset, reused reset, old/new password, verification, metadata status/errors (Firestore stub)');
  }finally{await browser.close();}
