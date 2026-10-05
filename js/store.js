@@ -15,15 +15,27 @@ const FB = "https://www.gstatic.com/firebasejs/11.6.1";
 
 export const isCityEmail = email => email.trim().toLowerCase().endsWith(ALLOWED_EMAIL_DOMAIN);
 
+// Local emulator mode for testing sign-up, verification and password reset without touching
+// production: ?emulator=1 on localhost only, with `firebase emulators:start` running (firebase.json).
+const EMULATOR = new URLSearchParams(location.search).has("emulator")
+  && ["localhost", "127.0.0.1"].includes(location.hostname);
+export const isEmulator = () => EMULATOR;
+
 export async function firebaseStore() {
   const [{ initializeApp }, A, F] = await Promise.all([
     import(`${FB}/firebase-app.js`),
     import(`${FB}/firebase-auth.js`),
     import(`${FB}/firebase-firestore.js`),
   ]);
-  const app = initializeApp(firebaseConfig);
+  const app = initializeApp(EMULATOR
+    ? { apiKey: "demo-key", authDomain: "demo-nno.firebaseapp.com", projectId: "demo-nno", appId: "demo" }
+    : firebaseConfig);
   const auth = A.getAuth(app);
   const db = F.getFirestore(app);
+  if (EMULATOR) {
+    A.connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
+    F.connectFirestoreEmulator(db, "127.0.0.1", 8080);
+  }
   const partiesCol = F.collection(db, "parties");
   const who = () => auth.currentUser?.email?.toLowerCase() || "unknown";
   const stamp = () => ({ updatedAt: F.serverTimestamp(), updatedBy: who() });

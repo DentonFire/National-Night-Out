@@ -41,3 +41,6 @@ __pycache__/
 .firebase/
 firebase-debug.log
 firestore-debug.log
+
+# --- agent worktrees (docs/TEAMWORK.md) ---
+.worktrees/

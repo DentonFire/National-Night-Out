@@ -1357,7 +1357,7 @@ async function boot() {
   wireDrag();
   if (DEMO) {
     S.store = demoStore(params.get("role") === "crew" ? "crew" : "command");
-  } else if (!firebaseConfig.projectId) {
+  } else if (!firebaseConfig.projectId && !params.has("emulator")) {
     $("secure-text").textContent = "Backend not configured";
     loginMsg("This copy isn't connected to its backend yet. Add ?demo=1 to the address to try the demo.");
     return;
