@@ -16,12 +16,14 @@ const emulator = 'http://127.0.0.1:9099';
       if (/googleapis[.]com|firebaseio[.]com|firebaseapp[.]com/.test(u.hostname)) forbidden.push(u.origin);
       return route.abort();
     });
-    if (process.env.NNO_REMOVE_CONTROL === 'verification') {
-      await context.route('**/js/store.js*', async route => {
-        const response = await route.fetch();
-        await route.fulfill({ response, body: (await response.text()).replace('await user.getIdToken(true);', '// removal drill: token refresh omitted') });
-      });
-    }
+    await context.route('**/js/store.js*', async route => {
+      const response = await route.fetch();
+      let body = await response.text();
+      if (process.env.NNO_REMOVE_CONTROL === 'verification') body = body.replace('await user.getIdToken(true);', '// removal drill: token refresh omitted');
+      // Capture the token at completion, before a later SDK request can refresh it incidentally.
+      body = body.replace('return auth.currentUser === user;', 'sessionStorage.setItem("audit-verification-token", String((await user.getIdTokenResult()).claims.email_verified)); return auth.currentUser === user;');
+      await route.fulfill({ response, body });
+    });
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', e => errors.push(e.message));
@@ -34,6 +36,7 @@ const emulator = 'http://127.0.0.1:9099';
     await page.locator('#password').fill('Synthetic audit passphrase 42!');
     await page.locator('#login-btn').click();
     await page.waitForFunction(() => document.querySelector('#login-msg').textContent.includes('Account created'));
+    await page.locator('#password').fill('Synthetic audit passphrase 42!');
     await page.locator('#login-btn').click();
     await page.locator('#verify-modal').waitFor({ state: 'visible' });
     assert.equal(await page.locator('#app').isVisible(), false);
@@ -42,11 +45,23 @@ const emulator = 'http://127.0.0.1:9099';
       return (await A.getIdTokenResult(A.getAuth().currentUser)).claims.email_verified;
     });
     assert.equal(before, false);
+    await context.route('**/accounts:lookup*', route => route.abort('internetdisconnected'));
+    await page.waitForTimeout(4000);
+    assert.deepEqual(errors, [], 'offline verification polling must stay recoverable');
+    await context.unroute('**/accounts:lookup*');
     const codes = await (await fetch(`${emulator}/emulator/v1/projects/demo-nno/oobCodes`)).json();
     const code = codes.oobCodes.find(c => c.email === email && c.requestType === 'VERIFY_EMAIL');
     assert.ok(code);
     // Consume the link in a separate browser context, like opening email on another device.
-    const linkPage = await (await browser.newContext()).newPage();
+    const linkContext = await browser.newContext();
+    await linkContext.route('**/*', route => {
+      const u = new URL(route.request().url());
+      if (['localhost', '127.0.0.1'].includes(u.hostname) || ['www.gstatic.com', 'unpkg.com', 'cdn.tailwindcss.com', 'cdnjs.cloudflare.com', 'fonts.googleapis.com', 'fonts.gstatic.com', 'files.constantcontact.com', 'server.arcgisonline.com', 'www.transparenttextures.com'].includes(u.hostname)) return route.continue();
+      if (/googleapis[.]com|firebaseio[.]com|firebaseapp[.]com/.test(u.hostname)) forbidden.push(u.origin);
+      return route.abort();
+    });
+    assert.equal(new URL(new URL(code.oobLink).searchParams.get('continueUrl')).searchParams.get('emulator'), '1');
+    const linkPage = await linkContext.newPage();
     await linkPage.goto(code.oobLink);
     await linkPage.waitForTimeout(500);
     await page.waitForFunction(async () => {
@@ -54,6 +69,7 @@ const emulator = 'http://127.0.0.1:9099';
       const user = A.getAuth().currentUser;
       return user?.emailVerified && (await A.getIdTokenResult(user)).claims.email_verified === true;
     }, null, { timeout: 25000 });
+    await page.waitForFunction(() => sessionStorage.getItem('audit-verification-token') === 'true', null, { timeout: 10000 });
     assert.deepEqual(errors, []);
     assert.deepEqual(forbidden, []);
     console.log('PASS: sign-up, unverified gate, verification in another browser, refreshed email_verified token');

@@ -20,7 +20,7 @@ function loadStore({ A = {}, F = {}, local = new Map() } = {}) {
     F: { getFirestore: () => ({}), connectFirestoreEmulator() {}, collection: () => ({}), ...F },
     APP: { initializeApp: config => { assert.equal(config.projectId, 'demo-nno'); return {}; } },
     location: { search: '?emulator=1', hostname: 'localhost', href: 'http://localhost:5173/?emulator=1' },
-    URLSearchParams, structuredClone, setTimeout,
+    URL, URLSearchParams, structuredClone, setTimeout,
     localStorage: { getItem: k => local.get(k), setItem: (k, v) => local.set(k, v) },
   });
   vm.runInContext(source + '; globalThis.audit = { firebaseStore, demoStore };', context);
@@ -161,4 +161,13 @@ test('a late role lookup cannot restore a signed-out user or leak an unsubscribe
   assert.equal(seen.length,1);assert.equal(seen[0].user,null);
   auth.currentUser=user;const late=callback(user);off();finish({exists:()=>true,data:()=>({role:'owner'})});await late;
   assert.equal(seen.length,1);
+});
+
+
+test('emulator email-action continuation cannot drop the emulator mode', async () => {
+  const urls=[];const user={};
+  const store=await loadStore({A:{getAuth:()=>({currentUser:user}),createUserWithEmailAndPassword:async()=>({user}),sendEmailVerification:async(_,settings)=>urls.push(settings.url),sendPasswordResetEmail:async(_,email,settings)=>urls.push(settings.url),signOut:async()=>{}}}).firebaseStore();
+  await store.signUp('audit.tester@cityofdenton.com','Synthetic passphrase');
+  await store.resetPassword('audit.tester@cityofdenton.com');await store.resendVerification();
+  assert.equal(urls.length,3);for(const url of urls)assert.equal(url,'http://localhost:5173/?emulator=1');
 });

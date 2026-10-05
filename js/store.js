@@ -57,6 +57,10 @@ export async function firebaseStore() {
     A.connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
     F.connectFirestoreEmulator(db, "127.0.0.1", 8080);
   }
+  const continueURL = new URL(location.href);
+  continueURL.search = EMULATOR ? "?emulator=1" : "";
+  continueURL.hash = "";
+  const actionSettings = { url: continueURL.href };
   const partiesCol = F.collection(db, "parties");
   const who = () => auth.currentUser?.email?.toLowerCase() || "unknown";
   const stamp = () => ({ updatedAt: F.serverTimestamp(), updatedBy: who() });
@@ -87,12 +91,12 @@ export async function firebaseStore() {
     },
     async signUp(email, password) {
       const cred = await A.createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-      await A.sendEmailVerification(cred.user, { url: location.href.split("?")[0] });
+      await A.sendEmailVerification(cred.user, actionSettings);
       await A.signOut(auth);
     },
     resetPassword: email =>
-      A.sendPasswordResetEmail(auth, email.trim().toLowerCase(), { url: location.href.split("?")[0] }),
-    resendVerification: () => A.sendEmailVerification(auth.currentUser, { url: location.href.split("?")[0] }),
+      A.sendPasswordResetEmail(auth, email.trim().toLowerCase(), actionSettings),
+    resendVerification: () => A.sendEmailVerification(auth.currentUser, actionSettings),
     reloadUser: async () => {
       const user = auth.currentUser;
       if (!user) return false;
