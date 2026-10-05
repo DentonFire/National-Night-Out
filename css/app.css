@@ -18,6 +18,27 @@ body { font-family: 'Inter', sans-serif; font-feature-settings: "cv11", "ss01"; 
 
 /* ---- sign in (from Water-Shutoff) */
 #login-overlay { background-color: var(--navy); background-image: url('https://www.transparenttextures.com/patterns/cubes.png'), radial-gradient(circle at top right, var(--navy-light), var(--navy)); }
+/* A short landscape screen must scroll. Centering a too-tall card clips the title and the instructions. */
+#login-overlay,
+#verify-modal {
+  flex-direction: column;
+  justify-content: flex-start;
+  align-items: center;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-top: max(12px, env(safe-area-inset-top));
+  padding-bottom: max(12px, env(safe-area-inset-bottom));
+}
+#login-overlay > div,
+#verify-modal > div { margin-top: auto; margin-bottom: auto; flex: 0 0 auto; }
+#auth-toggle,
+#forgot-btn {
+  min-height: 44px;
+  padding-inline: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .scan-line-gradient { background: linear-gradient(90deg, var(--navy) 0%, #ef4444 50%, var(--navy) 100%); background-size: 200% 100%; }
 .animate-scan { animation: scan 3s linear infinite; }
 @keyframes scan { from { background-position: 200% 0; } to { background-position: 0 0; } }
