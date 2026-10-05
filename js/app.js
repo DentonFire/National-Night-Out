@@ -1114,8 +1114,7 @@ function wireDrag() {
           await S.store.unassignUnit(d.from, d.unit);
           toast(`${d.unit} was already at ${to.name}; removed the duplicate`);
         } else {
-          await S.store.assignUnit(target, d.unit);
-          await S.store.unassignUnit(d.from, d.unit);
+          await S.store.moveUnit(d.from, target, d.unit);
           toast(`${d.unit} moved to ${to?.name}${to && isOut(d.unit, to) ? " (out of district)" : ""}`);
         }
       } else if (!d.from) {

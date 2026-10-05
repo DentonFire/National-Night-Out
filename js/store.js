@@ -83,6 +83,13 @@ export async function firebaseStore() {
     },
     assignUnit: (id, unit) => F.updateDoc(F.doc(db, "parties", id), { units: F.arrayUnion(unit), ...stamp() }),
     unassignUnit: (id, unit) => F.updateDoc(F.doc(db, "parties", id), { units: F.arrayRemove(unit), ...stamp() }),
+    async moveUnit(from, to, unit) {
+      if (from === to) return;
+      const batch = F.writeBatch(db);
+      batch.update(F.doc(db, "parties", to), { units: F.arrayUnion(unit), ...stamp() });
+      batch.update(F.doc(db, "parties", from), { units: F.arrayRemove(unit), ...stamp() });
+      await batch.commit();
+    },
     setMayor: (id, on) => F.updateDoc(F.doc(db, "parties", id), { mayor: on, ...stamp() }),
     movePin: (id, lat, lng, fireDistrict) =>
       F.updateDoc(F.doc(db, "parties", id), { lat, lng, fireDistrict, pinMoved: true, ...stamp() }),
@@ -187,6 +194,14 @@ export function demoStore(initialRole = "command") {
     subscribeParties(cb) { listeners.add(cb); setTimeout(() => cb(structuredClone(parties))); return () => listeners.delete(cb); },
     async assignUnit(id, u) { edit(id, p => { if (!p.units.includes(u)) p.units.push(u); }); },
     async unassignUnit(id, u) { edit(id, p => { p.units = p.units.filter(x => x !== u); }); },
+    async moveUnit(from, to, unit) {
+      if (from === to) return;
+      const source = parties.find(p => p.id === from), target = parties.find(p => p.id === to);
+      if (!source || !target) throw new Error("Party no longer exists");
+      source.units = source.units.filter(u => u !== unit);
+      if (!target.units.includes(unit)) target.units.push(unit);
+      save();
+    },
     async setMayor(id, on) { edit(id, p => { p.mayor = on; }); },
     async movePin(id, lat, lng, fd) { edit(id, p => Object.assign(p, { lat, lng, fireDistrict: fd, pinMoved: true })); },
     async removeParty(id) { parties = parties.filter(p => p.id !== id); save(); },

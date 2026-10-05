@@ -37,3 +37,52 @@ test('verification completion refreshes the token required by Firestore, not onl
   assert.equal(await store.reloadUser(), true);
   assert.equal(tokenVerified, true, 'Firestore would still deny a token with email_verified=false');
 });
+
+
+test('unit moves commit both endpoints together, including a rejected destination', async () => {
+  let docs = { source: ['E1'], target: [] };
+  let fail = false, commits = 0, writes = 0;
+  const F = {
+    doc: (_, col, id) => id,
+    serverTimestamp: () => 0,
+    arrayUnion: u => ({ add: u }), arrayRemove: u => ({ remove: u }),
+    updateDoc: () => { writes++; throw new Error('Independent writes are forbidden in a move'); },
+    writeBatch: () => {
+      const updates = [];
+      return {
+        update: (id, data) => updates.push([id, data]),
+        commit: async () => {
+          commits++;
+          if (fail) throw new Error('permission-denied');
+          const next = structuredClone(docs);
+          for (const [id, data] of updates) {
+            if (data.units.add && !next[id].includes(data.units.add)) next[id].push(data.units.add);
+            if (data.units.remove) next[id] = next[id].filter(u => u !== data.units.remove);
+          }
+          docs = next;
+        },
+      };
+    },
+  };
+  const store = await loadStore({ F }).firebaseStore();
+  await store.moveUnit('source', 'target', 'E1');
+  assert.deepEqual(docs, { source: [], target: ['E1'] });
+  assert.equal(commits, 1); assert.equal(writes, 0);
+  docs = { source: ['E1'], target: [] }; fail = true;
+  await assert.rejects(store.moveUnit('source', 'target', 'E1'), /permission-denied/);
+  assert.deepEqual(docs, { source: ['E1'], target: [] });
+});
+
+test('demo moves publish one complete snapshot and reject missing parties without mutation', async () => {
+  const store = loadStore().demoStore();
+  const snapshot = () => new Promise(resolve => { const off = store.subscribeParties(p => { off(); resolve(p); }); });
+  const parties = await snapshot();
+  const from = parties[0].id, to = parties[1].id;
+  await store.assignUnit(from, 'E1');
+  let callbacks = 0;
+  const off = store.subscribeParties(p => { callbacks++; assert.equal(p.find(x => x.id === from).units.includes('E1'), false); assert.equal(p.find(x => x.id === to).units.includes('E1'), true); });
+  await store.moveUnit(from, to, 'E1');
+  off(); assert.equal(callbacks, 1);
+  await assert.rejects(store.moveUnit(to, 'missing', 'E1'), /no longer exists/);
+  assert.equal((await snapshot()).find(x => x.id === to).units.includes('E1'), true);
+});
