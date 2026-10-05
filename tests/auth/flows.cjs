@@ -52,6 +52,13 @@ export const onSnapshot = (path, options, next, error) => {
   assert.match(await page.locator('#login-msg').innerText(),/network-request-failed/);
   await context.unroute(oobRoute);
   await page.locator('#auth-toggle').click();await submit('audit.weak@cityofdenton.com','123');assert.match(await page.locator('#login-msg').innerText(),/at least 6/);
+  await context.route(oobRoute,route=>route.abort('internetdisconnected'));
+  await submit(`audit.send-failed.${Date.now()}@cityofdenton.com`);
+  await page.locator('#verify-modal').waitFor({state:'visible'});
+  assert.equal(await page.locator('#app').isVisible(),false);
+  await context.unroute(oobRoute);
+  await page.locator('#verify-resend').click();await page.waitForFunction(()=>document.querySelector('#toast').textContent==='Verification email sent');
+  await page.locator('#verify-cancel').click();await page.locator('#verify-modal').waitFor({state:'hidden'});
   const email=`audit.flow.${Date.now()}@cityofdenton.com`;
   await submit(email);assert.match(await page.locator('#login-msg').innerText(),/Account created/);
   await page.locator('#auth-toggle').click();await submit(email);assert.match(await page.locator('#login-msg').innerText(),/already has an account/);
