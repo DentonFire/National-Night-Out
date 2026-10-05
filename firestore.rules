@@ -13,7 +13,8 @@ service cloud.firestore {
     function cityUser() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email.lower().matches('.*@cityofdenton[.]com$');
+        && request.auth.token.email is string
+        && request.auth.token.email.lower().matches('[^@]+@cityofdenton[.]com$');
     }
     function roleDoc() {
       return /databases/$(database)/documents/roles/$(request.auth.token.email.lower());
@@ -29,14 +30,36 @@ service cloud.firestore {
     }
     function isOwner()   { return cityUser() && role() == 'owner'; }
 
+    function validTime(value) {
+      return value is string && (value == '' || value.matches('([01][0-9]|2[0-3]):[0-5][0-9]'));
+    }
+    function validParty(p, partyId) {
+      // An allowlist blocks all extra personal fields, not just two spellings of host name.
+      return p.keys().hasOnly(['id', 'name', 'address', 'notes', 'lat', 'lng', 'council',
+          'fireDistrict', 'start', 'end', 'attendance', 'depts', 'guests', 'police', 'mayor',
+          'units', 'pinMoved', 'pinApprox', 'updatedAt', 'updatedBy'])
+        && p.get('id', partyId) == partyId
+        && p.name is string && p.name.size() > 0
+        && p.units is list && p.units.size() <= 40
+        && p.units.hasOnly(['E1', 'T1', 'M1', 'E2', 'M2', 'E3', 'L3', 'M3', 'E4', 'M4',
+          'E5', 'M5', 'E6', 'M6', 'E7', 'M7', 'E8', 'M8', 'E9'])
+        && p.get('address', '') is string && p.get('notes', '') is string
+        && p.get('council', '') is string && p.get('attendance', '') is string
+        && p.get('guests', '') is string && p.get('depts', []) is list
+        && p.get('police', false) is bool && p.get('mayor', false) is bool
+        && p.get('pinMoved', false) is bool && p.get('pinApprox', false) is bool
+        && validTime(p.get('start', '')) && validTime(p.get('end', ''))
+        && (p.get('fireDistrict', null) == null || p.fireDistrict in ['1','2','3','4','5','6','7','8','9'])
+        && ((p.get('lat', null) == null && p.get('lng', null) == null)
+          || (p.lat is number && p.lng is number
+            && p.lat >= -90 && p.lat <= 90 && p.lng >= -180 && p.lng <= 180))
+        && p.get('updatedAt', request.time) is timestamp
+        && p.get('updatedBy', request.auth.token.email.lower()) == request.auth.token.email.lower();
+    }
+
     match /parties/{partyId} {
       allow read: if cityUser();
-      allow create, update: if isCommand() && !locked()
-        && request.resource.data.name is string
-        && request.resource.data.units is list
-        && request.resource.data.units.size() <= 40
-        && !('host' in request.resource.data)
-        && !('hostName' in request.resource.data);
+      allow create, update: if isCommand() && !locked() && validParty(request.resource.data, partyId);
       allow delete: if isCommand() && !locked();
     }
 
@@ -44,13 +67,17 @@ service cloud.firestore {
       allow read: if cityUser();
       allow write: if isCommand()
         && request.resource.data.finalized is bool
-        && request.resource.data.acceptedIssues is list;
+        && request.resource.data.acceptedIssues is list
+        && request.resource.data.keys().hasOnly(['finalized', 'acceptedIssues', 'finalizedBy',
+          'finalizedAt', 'updatedAt', 'updatedBy']);
     }
 
     match /roles/{email} {
       allow read: if cityUser() && (email == request.auth.token.email.lower() || isOwner());
       allow create, update: if isOwner()
-        && email.matches('.*@cityofdenton[.]com$')
+        && email.matches('[^@]+@cityofdenton[.]com$')
+        && (email != request.auth.token.email.lower() || request.resource.data.role == 'owner')
+        && request.resource.data.keys().hasOnly(['role', 'updatedAt', 'updatedBy'])
         && request.resource.data.role in ['command', 'owner'];
       allow delete: if isOwner() && email != request.auth.token.email.lower();
     }

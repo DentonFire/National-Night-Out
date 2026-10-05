@@ -10,10 +10,31 @@
 //   While finalized, Firestore rules refuse party changes until Command unlocks.
 
 import { firebaseConfig, ALLOWED_EMAIL_DOMAIN } from "./config.js";
+import { UNITS } from "./roster.js";
 
 const FB = "https://www.gstatic.com/firebasejs/11.6.1";
 
 export const isCityEmail = email => email.trim().toLowerCase().endsWith(ALLOWED_EMAIL_DOMAIN);
+
+// Treat previously stored documents as untrusted too, including documents predating the rules.
+// In particular, directions URLs and time-filter attributes must never receive raw strings.
+export function partyFromDoc(id, data) {
+  const p = { id };
+  for (const key of ["name", "address", "notes", "council", "attendance", "guests"]) {
+    p[key] = typeof data[key] === "string" ? data[key] : "";
+  }
+  for (const key of ["start", "end"]) {
+    p[key] = typeof data[key] === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(data[key]) ? data[key] : "";
+  }
+  const pin = Number.isFinite(data.lat) && Number.isFinite(data.lng)
+    && Math.abs(data.lat) <= 90 && Math.abs(data.lng) <= 180;
+  p.lat = pin ? data.lat : null; p.lng = pin ? data.lng : null;
+  p.fireDistrict = /^[1-9]$/.test(data.fireDistrict) ? String(data.fireDistrict) : null;
+  p.units = Array.isArray(data.units) ? [...new Set(data.units.filter(u => UNITS.has(u)))] : [];
+  p.depts = Array.isArray(data.depts) ? data.depts.filter(d => typeof d === "string") : [];
+  for (const key of ["police", "mayor", "pinMoved", "pinApprox"]) p[key] = data[key] === true;
+  return p;
+}
 
 // Local emulator mode for testing sign-up, verification and password reset without touching
 // production: ?emulator=1 on localhost only, with `firebase emulators:start` running (firebase.json).
@@ -36,6 +57,10 @@ export async function firebaseStore() {
     A.connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
     F.connectFirestoreEmulator(db, "127.0.0.1", 8080);
   }
+  const continueURL = new URL(location.href);
+  continueURL.search = EMULATOR ? "?emulator=1" : "";
+  continueURL.hash = "";
+  const actionSettings = { url: continueURL.href };
   const partiesCol = F.collection(db, "parties");
   const who = () => auth.currentUser?.email?.toLowerCase() || "unknown";
   const stamp = () => ({ updatedAt: F.serverTimestamp(), updatedBy: who() });
@@ -44,16 +69,21 @@ export async function firebaseStore() {
     mode: "live",
 
     onAuth(cb) {
-      return A.onAuthStateChanged(auth, async user => {
+      let revision = 0, active = true;
+      const unsubscribe = A.onAuthStateChanged(auth, async user => {
+        const turn = ++revision;
         if (!user) return cb({ user: null });
+        if (!isCityEmail(user.email || "")) { await A.signOut(auth); return; }
         if (!user.emailVerified) return cb({ user, unverified: true });
         let role = "crew";
         try {
           const snap = await F.getDoc(F.doc(db, "roles", user.email.toLowerCase()));
           if (snap.exists()) role = snap.data().role;
         } catch (e) { /* no role doc readable: crew */ }
-        cb({ user, role });
+        // A role lookup can finish after sign-out or a different person's sign-in.
+        if (active && turn === revision && auth.currentUser === user) cb({ user, role });
       });
+      return () => { active = false; revision++; unsubscribe(); };
     },
     async signIn(email, password) {
       await A.setPersistence(auth, A.browserLocalPersistence);
@@ -61,27 +91,48 @@ export async function firebaseStore() {
     },
     async signUp(email, password) {
       const cred = await A.createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
-      await A.sendEmailVerification(cred.user, { url: location.href.split("?")[0] });
+      await A.sendEmailVerification(cred.user, actionSettings);
       await A.signOut(auth);
     },
     resetPassword: email =>
-      A.sendPasswordResetEmail(auth, email.trim().toLowerCase(), { url: location.href.split("?")[0] }),
-    resendVerification: () => A.sendEmailVerification(auth.currentUser, { url: location.href.split("?")[0] }),
-    reloadUser: async () => { await auth.currentUser?.reload(); return auth.currentUser?.emailVerified; },
+      A.sendPasswordResetEmail(auth, email.trim().toLowerCase(), actionSettings),
+    resendVerification: () => A.sendEmailVerification(auth.currentUser, actionSettings),
+    reloadUser: async () => {
+      const user = auth.currentUser;
+      if (!user) return false;
+      await user.reload();
+      if (!user.emailVerified || auth.currentUser !== user) return false;
+      // reload() updates the user record, not the cached token used by Firestore rules.
+      await user.getIdToken(true);
+      return auth.currentUser === user;
+    },
     signOut: () => A.signOut(auth),
 
     subscribeParties(cb, onError) {
-      return F.onSnapshot(partiesCol, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))), onError);
+      return F.onSnapshot(partiesCol, { includeMetadataChanges: true },
+        snap => cb(snap.docs.map(d => partyFromDoc(d.id, d.data())), {
+          fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites,
+        }), onError);
     },
     assignUnit: (id, unit) => F.updateDoc(F.doc(db, "parties", id), { units: F.arrayUnion(unit), ...stamp() }),
     unassignUnit: (id, unit) => F.updateDoc(F.doc(db, "parties", id), { units: F.arrayRemove(unit), ...stamp() }),
+    async moveUnit(from, to, unit) {
+      if (from === to) return;
+      const batch = F.writeBatch(db);
+      batch.update(F.doc(db, "parties", to), { units: F.arrayUnion(unit), ...stamp() });
+      batch.update(F.doc(db, "parties", from), { units: F.arrayRemove(unit), ...stamp() });
+      await batch.commit();
+    },
     setMayor: (id, on) => F.updateDoc(F.doc(db, "parties", id), { mayor: on, ...stamp() }),
     movePin: (id, lat, lng, fireDistrict) =>
       F.updateDoc(F.doc(db, "parties", id), { lat, lng, fireDistrict, pinMoved: true, ...stamp() }),
     removeParty: id => F.deleteDoc(F.doc(db, "parties", id)),
 
     subscribeEvent(cb, onError) {
-      return F.onSnapshot(F.doc(db, "config", "event"), snap => cb(snap.exists() ? snap.data() : {}), onError);
+      return F.onSnapshot(F.doc(db, "config", "event"), { includeMetadataChanges: true },
+        snap => cb(snap.exists() ? snap.data() : {}, {
+          fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites,
+        }), onError);
     },
     setFinalized: (finalized, acceptedIssues = []) =>
       F.setDoc(F.doc(db, "config", "event"), {
@@ -95,27 +146,34 @@ export async function firebaseStore() {
     // Upsert from the spreadsheet. Keeps assignments, Mayor flags and hand-moved pins.
     // replace: new year. Drop parties not in the sheet and start every party with no assignments.
     async importParties(list, existing, { replace = false } = {}) {
-      const batch = F.writeBatch(db);
-      if (replace) {
-        const keep = new Set(list.map(p => p.id));
-        for (const id of existing.keys()) if (!keep.has(id)) batch.delete(F.doc(db, "parties", id));
-        existing = new Map();
+      const ids = list.map(p => p.id);
+      if (ids.some(id => !id) || new Set(ids).size !== ids.length) {
+        throw new Error("Party names must have unique, non-empty IDs. Check duplicate names before importing.");
       }
-      for (const p of list) {
-        const prev = existing.get(p.id);
-        const keepPin = prev?.pinMoved;
-        batch.set(F.doc(db, "parties", p.id), {
-          ...p,
-          ...(keepPin ? { lat: prev.lat, lng: prev.lng, fireDistrict: prev.fireDistrict, pinMoved: true } : {}),
-          units: prev?.units || [],
-          mayor: Boolean(prev?.mayor || p.mayor),
-          ...stamp(),
+      // Read assignments inside the transaction so a concurrent chief's changes cause a retry.
+      // The import preview's existing map may already be stale by the time Import is tapped.
+      await F.runTransaction(db, async tx => {
+        const refs = list.map(p => F.doc(db, "parties", p.id));
+        const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
+        if (replace) {
+          const keep = new Set(ids);
+          for (const id of existing.keys()) if (!keep.has(id)) tx.delete(F.doc(db, "parties", id));
+        }
+        list.forEach((p, i) => {
+          const prev = !replace && snapshots[i].exists() ? snapshots[i].data() : null;
+          const keepPin = prev?.pinMoved;
+          tx.set(refs[i], {
+            ...p,
+            ...(keepPin ? { lat: prev.lat, lng: prev.lng, fireDistrict: prev.fireDistrict, pinMoved: true } : {}),
+            units: prev?.units || [],
+            mayor: Boolean(prev?.mayor || p.mayor),
+            ...stamp(),
+          });
         });
-      }
-      await batch.commit();
+      });
     },
 
-    listRoles: async () => (await F.getDocs(F.collection(db, "roles"))).docs.map(d => ({ email: d.id, ...d.data() })),
+    listRoles: async () => (await F.getDocs(F.collection(db, "roles"))).docs.map(d => ({ ...d.data(), email: d.id })),
     setRole: (email, role) => F.setDoc(F.doc(db, "roles", email.trim().toLowerCase()), { role, ...stamp() }),
     removeRole: email => F.deleteDoc(F.doc(db, "roles", email)),
   };
@@ -179,6 +237,14 @@ export function demoStore(initialRole = "command") {
     subscribeParties(cb) { listeners.add(cb); setTimeout(() => cb(structuredClone(parties))); return () => listeners.delete(cb); },
     async assignUnit(id, u) { edit(id, p => { if (!p.units.includes(u)) p.units.push(u); }); },
     async unassignUnit(id, u) { edit(id, p => { p.units = p.units.filter(x => x !== u); }); },
+    async moveUnit(from, to, unit) {
+      if (from === to) return;
+      const source = parties.find(p => p.id === from), target = parties.find(p => p.id === to);
+      if (!source || !target) throw new Error("Party no longer exists");
+      source.units = source.units.filter(u => u !== unit);
+      if (!target.units.includes(unit)) target.units.push(unit);
+      save();
+    },
     async setMayor(id, on) { edit(id, p => { p.mayor = on; }); },
     async movePin(id, lat, lng, fd) { edit(id, p => Object.assign(p, { lat, lng, fireDistrict: fd, pinMoved: true })); },
     async removeParty(id) { parties = parties.filter(p => p.id !== id); save(); },
@@ -193,6 +259,11 @@ export function demoStore(initialRole = "command") {
       eventListeners.forEach(cb => cb({ ...event }));
     },
     async importParties(list, existing, { replace = false } = {}) {
+      const ids = list.map(p => p.id);
+      if (ids.some(id => !id) || new Set(ids).size !== ids.length) {
+        throw new Error("Party names must have unique, non-empty IDs. Check duplicate names before importing.");
+      }
+      existing = new Map(parties.map(p => [p.id, p]));
       if (replace) {
         const keep = new Set(list.map(p => p.id));
         parties = parties.filter(p => keep.has(p.id));

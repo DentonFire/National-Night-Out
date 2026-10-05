@@ -31,6 +31,8 @@ const S = {
   routeLine: null,
   unsubscribe: null,
   lastSync: null,
+  sync: { parties: null, event: null },
+  syncErrors: { parties: null, event: null },
   myUnit: null,
   event: {},
   unsubEvent: null,
@@ -170,8 +172,8 @@ function wireAuth() {
 
   $("verify-resend").addEventListener("click", () =>
     S.store.resendVerification().then(() => toast("Verification email sent")).catch(fail));
-  $("verify-cancel").addEventListener("click", () => S.store.signOut());
-  $("logout-btn").addEventListener("click", () => { if (DEMO || confirm("Sign out of the NNO map?")) S.store.signOut(); });
+  $("verify-cancel").addEventListener("click", signOut);
+  $("logout-btn").addEventListener("click", () => { if (DEMO || confirm("Sign out of the NNO map?")) signOut(); });
 }
 
 function setSignUpMode(on) {
@@ -183,15 +185,41 @@ function setSignUpMode(on) {
   $("login-msg").classList.add("hidden");
 }
 
+async function signOut() {
+  if (!DEMO) handleAuth({ user: null }); // Clear the screen before the auth operation can fail.
+  try { await S.store.signOut(); }
+  catch (err) { toast("Couldn't finish signing out. Reload and sign out again.", true); }
+}
+
+function clearAuthState() {
+  S.user = null; S.role = "crew";
+  S.unsubscribe?.(); S.unsubscribe = null;
+  S.unsubEvent?.(); S.unsubEvent = null;
+  // Let the tour clean up its keyboard/resize handlers before clearing its seen-state.
+  if ($("tour")) document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+  document.querySelectorAll("dialog[open]").forEach(dialog => dialog.close());
+  disarm(); stopEdgePan();
+  S.map?.remove(); S.map = null;
+  S.markers.clear(); S.markerHtml.clear(); S.routeLine = null;
+  S.districtLayer = null; S.districtLabels = [];
+  S.parties = []; S.byId.clear(); S.event = {};
+  S.selectedParty = null; S.selectedUnit = null; S.movingPin = null;
+  S.myUnit = null; S.tabRole = null; S.timeFilter = "all"; S.lastSync = null;
+  S.sync = { parties: null, event: null }; S.syncErrors = { parties: null, event: null };
+  tourChecked = null;
+  for (const id of ["mine-pane", "units-pane", "parties-pane", "coverage-pane", "detail", "access-list", "import-preview"]) $(id).replaceChildren();
+  $("password").value = ""; $("verify-target").textContent = "";
+  $("map-loading").classList.remove("hidden");
+  try {
+    for (const key of [MY_UNIT_KEY, "nno-tour-crew-v1", "nno-tour-command-v1"]) localStorage.removeItem(key);
+  } catch { /* storage blocked */ }
+}
+
 function handleAuth({ user, unverified, role }) {
   clearInterval(verifyTimer);
   $("verify-modal").classList.add("hidden");
   if (!user) {
-    S.user = null;
-    S.unsubscribe?.();
-    S.unsubscribe = null;
-    S.unsubEvent?.();
-    S.unsubEvent = null;
+    clearAuthState();
     $("app").classList.add("hidden");
     $("app").classList.remove("flex");
     $("login-overlay").style.display = "flex";
@@ -199,11 +227,21 @@ function handleAuth({ user, unverified, role }) {
     $("secure-text").textContent = "Secure sign-in";
     return;
   }
+  if (S.user && S.user !== user) clearAuthState();
   if (unverified) {
+    $("app").classList.add("hidden");
     $("verify-target").textContent = user.email;
     $("verify-modal").classList.remove("hidden");
     verifyTimer = setInterval(async () => {
-      if (await S.store.reloadUser()) { clearInterval(verifyTimer); location.reload(); }
+      try {
+        if (await S.store.reloadUser()) { clearInterval(verifyTimer); location.reload(); }
+      } catch (err) {
+        // A lost signal must not stop verification polling or leave an unhandled rejection.
+        if (err.code !== "auth/network-request-failed") {
+          clearInterval(verifyTimer);
+          toast("Couldn't check verification. Sign out and sign in again.", true);
+        }
+      }
     }, 3000);
     return;
   }
@@ -218,6 +256,7 @@ function handleAuth({ user, unverified, role }) {
 // ------------------------------------------------------------- app
 
 function startApp() {
+  const activeUser = S.user;
   const cmd = isCommand();
   $("role-pill").textContent = cmd ? "Command" : "Crew";
   $("role-pill").className = `hidden xl:inline-block text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-full ${cmd ? "bg-navy text-yellow" : "bg-slate-100 text-slate-500"}`;
@@ -243,28 +282,42 @@ function startApp() {
 
   initMap();
   if (!S.unsubEvent) {
-    S.unsubEvent = S.store.subscribeEvent(ev => {
+    S.unsubEvent = S.store.subscribeEvent((ev, metadata) => {
+      if (S.user !== activeUser) return;
+      S.sync.event = metadata || { fromCache: false, hasPendingWrites: false };
+      S.syncErrors.event = null;
       const wasFinal = Boolean(S.event.finalized);
       S.event = ev || {};
       if (S.event.finalized && !wasFinal) { disarm(); S.selectedUnit = null; S.movingPin && cancelMovePin(); }
       applyLock();
       render();
-    }, err => console.error(err));
+    }, err => {
+      console.error(err);
+      S.syncErrors.event = "Can't confirm map lock";
+      setStatus(false);
+    });
   }
   applyLock();
   if (!S.unsubscribe) {
-    S.unsubscribe = S.store.subscribeParties(parties => {
+    S.unsubscribe = S.store.subscribeParties((parties, metadata) => {
+      if (S.user !== activeUser) return;
+      S.sync.parties = metadata || { fromCache: false, hasPendingWrites: false };
+      S.syncErrors.parties = null;
       S.parties = parties.sort(byTime);
       S.byId = new Map(parties.map(p => [p.id, p]));
       if (S.selectedParty && !S.byId.has(S.selectedParty)) S.selectedParty = null;
-      S.lastSync = new Date();
+      if (!S.sync.parties.fromCache && !S.sync.parties.hasPendingWrites) S.lastSync = new Date();
       setStatus(true);
       $("map-loading").classList.add("hidden");
       render();
       maybeStartTour();
     }, err => {
       console.error(err);
-      setStatus(false, err.code === "permission-denied" ? "No access: ask Command" : "Connection error");
+      S.syncErrors.parties = err.code === "permission-denied" ? "No access: ask Command" : "Connection error";
+      if (err.code === "permission-denied") {
+        S.parties = []; S.byId.clear(); S.selectedParty = null; render();
+      }
+      setStatus(false);
       $("map-loading").classList.add("hidden");
     });
   } else {
@@ -272,20 +325,29 @@ function startApp() {
   }
 }
 
-function setStatus(ok, text) {
-  $("status-dot").className = `w-2 h-2 rounded-full ${ok && navigator.onLine ? "bg-green-500" : ok ? "bg-yellow-400" : "bg-red"}`;
-  if (text) return ($("status-text").textContent = text);
-  if (!navigator.onLine) return ($("status-text").textContent = "Offline: showing last update");
+function setStatus() {
+  const snapshots = Object.values(S.sync);
+  const error = S.syncErrors.parties || S.syncErrors.event;
+  const pending = snapshots.some(m => m?.hasPendingWrites);
+  const cached = snapshots.some(m => m?.fromCache);
+  const connected = snapshots.every(Boolean) && !pending && !cached && !error && navigator.onLine;
+  $("status-dot").className = `w-2 h-2 rounded-full ${error ? "bg-red" : DEMO || connected ? "bg-green-500" : "bg-yellow-400"}`;
   const when = S.lastSync ? S.lastSync.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
-  $("status-text").textContent = DEMO ? "Demo data" : `Live · synced ${when}`;
+  $("status-text").textContent = DEMO ? "Demo data"
+    : error ? error
+    : !navigator.onLine ? (when ? `Offline · last update ${when}` : "Offline · no confirmed data")
+    : pending ? "Saving changes..."
+    : cached ? (when ? `Cached · last update ${when}` : "Connecting · no confirmed data")
+    : !connected ? "Connecting..."
+    : `Live · synced ${when}`;
 }
-addEventListener("online", () => setStatus(true));
-addEventListener("offline", () => setStatus(true));
+addEventListener("online", setStatus);
+addEventListener("offline", setStatus);
 
 // ------------------------------------------------------------- map
 
 function initMap() {
-  if (S.map) { setTimeout(() => S.map.invalidateSize(), 50); return; }
+  if (S.map) { setTimeout(() => S.map?.invalidateSize(), 50); return; }
   S.map = L.map("map", { zoomControl: false, attributionControl: true }).setView(MAP_CENTER, 12);
   // CARTO basemaps started requiring an API key in 2026; Esri's street map needs none.
   // Light gray base + street labels keeps colored pins and unit chips readable.
@@ -297,7 +359,9 @@ function initMap() {
   L.control.zoom({ position: "bottomright" }).addTo(S.map);
 
   S.map.createPane("districtLabels").style.zIndex = 450; // above shapes, below pins (600)
+  const activeMap = S.map;
   loadDistricts().then(geo => {
+    if (!S.user || S.map !== activeMap) return;
     S.districtLayer = L.geoJSON(geo, { style: districtStyle, interactive: false }).addTo(S.map);
     S.districtLabels = geo.features.map(f => {
       const id = String(f.properties.districtid);
@@ -314,7 +378,7 @@ function initMap() {
   const syncLabels = () => $("map").classList.toggle("show-labels", S.map.getZoom() >= 14);
   S.map.on("zoomend", syncLabels);
   S.map.on("click", () => { if (!S.movingPin) selectParty(null); });
-  setTimeout(() => S.map.invalidateSize(), 50);
+  setTimeout(() => S.map?.invalidateSize(), 50);
 }
 
 function districtStyle(f) {
@@ -911,6 +975,7 @@ function crewSteps() {
 }
 
 function startTour() {
+  if (!S.user) return;
   disarm();
   S.selectedUnit = null;
   const role = tourRole();
@@ -1106,8 +1171,7 @@ function wireDrag() {
           await S.store.unassignUnit(d.from, d.unit);
           toast(`${d.unit} was already at ${to.name}; removed the duplicate`);
         } else {
-          await S.store.assignUnit(target, d.unit);
-          await S.store.unassignUnit(d.from, d.unit);
+          await S.store.moveUnit(d.from, target, d.unit);
           toast(`${d.unit} moved to ${to?.name}${to && isOut(d.unit, to) ? " (out of district)" : ""}`);
         }
       } else if (!d.from) {
