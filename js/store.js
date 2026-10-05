@@ -79,7 +79,10 @@ export async function firebaseStore() {
     signOut: () => A.signOut(auth),
 
     subscribeParties(cb, onError) {
-      return F.onSnapshot(partiesCol, snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }))), onError);
+      return F.onSnapshot(partiesCol, { includeMetadataChanges: true },
+        snap => cb(snap.docs.map(d => ({ ...d.data(), id: d.id })), {
+          fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites,
+        }), onError);
     },
     assignUnit: (id, unit) => F.updateDoc(F.doc(db, "parties", id), { units: F.arrayUnion(unit), ...stamp() }),
     unassignUnit: (id, unit) => F.updateDoc(F.doc(db, "parties", id), { units: F.arrayRemove(unit), ...stamp() }),
@@ -96,7 +99,10 @@ export async function firebaseStore() {
     removeParty: id => F.deleteDoc(F.doc(db, "parties", id)),
 
     subscribeEvent(cb, onError) {
-      return F.onSnapshot(F.doc(db, "config", "event"), snap => cb(snap.exists() ? snap.data() : {}), onError);
+      return F.onSnapshot(F.doc(db, "config", "event"), { includeMetadataChanges: true },
+        snap => cb(snap.exists() ? snap.data() : {}, {
+          fromCache: snap.metadata.fromCache, hasPendingWrites: snap.metadata.hasPendingWrites,
+        }), onError);
     },
     setFinalized: (finalized, acceptedIssues = []) =>
       F.setDoc(F.doc(db, "config", "event"), {

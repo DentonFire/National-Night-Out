@@ -86,3 +86,23 @@ test('demo moves publish one complete snapshot and reject missing parties withou
   await assert.rejects(store.moveUnit(to, 'missing', 'E1'), /no longer exists/);
   assert.equal((await snapshot()).find(x => x.id === to).units.includes('E1'), true);
 });
+
+
+test('party and lock listeners include metadata-only changes and preserve canonical party IDs', async () => {
+  const calls = [];
+  const F = {
+    doc: () => 'event',
+    onSnapshot: (...args) => { calls.push(args); return () => {}; },
+  };
+  const store = await loadStore({ F }).firebaseStore();
+  let party, event;
+  store.subscribeParties((p, m) => { party = { p, m }; });
+  store.subscribeEvent((e, m) => { event = { e, m }; });
+  assert.equal(calls[0][1].includeMetadataChanges, true);
+  assert.equal(calls[1][1].includeMetadataChanges, true);
+  calls[0][2]({ docs: [{ id: 'canonical', data: () => ({ id: 'spoofed' }) }], metadata: { fromCache: true, hasPendingWrites: true } });
+  calls[1][2]({ exists: () => false, metadata: { fromCache: true, hasPendingWrites: false } });
+  assert.equal(party.p[0].id, 'canonical');
+  assert.equal(party.m.fromCache, true); assert.equal(party.m.hasPendingWrites, true);
+  assert.equal(event.m.fromCache, true); assert.equal(event.m.hasPendingWrites, false);
+});

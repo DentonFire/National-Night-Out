@@ -31,6 +31,8 @@ const S = {
   routeLine: null,
   unsubscribe: null,
   lastSync: null,
+  sync: { parties: null, event: null },
+  syncErrors: { parties: null, event: null },
   myUnit: null,
   event: {},
   unsubEvent: null,
@@ -251,28 +253,40 @@ function startApp() {
 
   initMap();
   if (!S.unsubEvent) {
-    S.unsubEvent = S.store.subscribeEvent(ev => {
+    S.unsubEvent = S.store.subscribeEvent((ev, metadata) => {
+      S.sync.event = metadata || { fromCache: false, hasPendingWrites: false };
+      S.syncErrors.event = null;
       const wasFinal = Boolean(S.event.finalized);
       S.event = ev || {};
       if (S.event.finalized && !wasFinal) { disarm(); S.selectedUnit = null; S.movingPin && cancelMovePin(); }
       applyLock();
       render();
-    }, err => console.error(err));
+    }, err => {
+      console.error(err);
+      S.syncErrors.event = "Can't confirm map lock";
+      setStatus(false);
+    });
   }
   applyLock();
   if (!S.unsubscribe) {
-    S.unsubscribe = S.store.subscribeParties(parties => {
+    S.unsubscribe = S.store.subscribeParties((parties, metadata) => {
+      S.sync.parties = metadata || { fromCache: false, hasPendingWrites: false };
+      S.syncErrors.parties = null;
       S.parties = parties.sort(byTime);
       S.byId = new Map(parties.map(p => [p.id, p]));
       if (S.selectedParty && !S.byId.has(S.selectedParty)) S.selectedParty = null;
-      S.lastSync = new Date();
+      if (!S.sync.parties.fromCache && !S.sync.parties.hasPendingWrites) S.lastSync = new Date();
       setStatus(true);
       $("map-loading").classList.add("hidden");
       render();
       maybeStartTour();
     }, err => {
       console.error(err);
-      setStatus(false, err.code === "permission-denied" ? "No access: ask Command" : "Connection error");
+      S.syncErrors.parties = err.code === "permission-denied" ? "No access: ask Command" : "Connection error";
+      if (err.code === "permission-denied") {
+        S.parties = []; S.byId.clear(); S.selectedParty = null; render();
+      }
+      setStatus(false);
       $("map-loading").classList.add("hidden");
     });
   } else {
@@ -280,15 +294,24 @@ function startApp() {
   }
 }
 
-function setStatus(ok, text) {
-  $("status-dot").className = `w-2 h-2 rounded-full ${ok && navigator.onLine ? "bg-green-500" : ok ? "bg-yellow-400" : "bg-red"}`;
-  if (text) return ($("status-text").textContent = text);
-  if (!navigator.onLine) return ($("status-text").textContent = "Offline: showing last update");
+function setStatus() {
+  const snapshots = Object.values(S.sync);
+  const error = S.syncErrors.parties || S.syncErrors.event;
+  const pending = snapshots.some(m => m?.hasPendingWrites);
+  const cached = snapshots.some(m => m?.fromCache);
+  const connected = snapshots.every(Boolean) && !pending && !cached && !error && navigator.onLine;
+  $("status-dot").className = `w-2 h-2 rounded-full ${error ? "bg-red" : DEMO || connected ? "bg-green-500" : "bg-yellow-400"}`;
   const when = S.lastSync ? S.lastSync.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
-  $("status-text").textContent = DEMO ? "Demo data" : `Live · synced ${when}`;
+  $("status-text").textContent = DEMO ? "Demo data"
+    : error ? error
+    : !navigator.onLine ? (when ? `Offline · last update ${when}` : "Offline · no confirmed data")
+    : pending ? "Saving changes..."
+    : cached ? (when ? `Cached · last update ${when}` : "Connecting · no confirmed data")
+    : !connected ? "Connecting..."
+    : `Live · synced ${when}`;
 }
-addEventListener("online", () => setStatus(true));
-addEventListener("offline", () => setStatus(true));
+addEventListener("online", setStatus);
+addEventListener("offline", setStatus);
 
 // ------------------------------------------------------------- map
 
