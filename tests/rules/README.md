@@ -1,6 +1,6 @@
 # Local rules regression suite
 
-Status on 2026-10-05 (Claude): **executed** with the Temurin JRE 21 already in `~/Dev/infra/toolchain/temurin-jre-21/`. `firestore.rules.proposed`: 14/14 pass. Live `firestore.rules`: all app writes and access checks pass; the 4 stricter-schema tests fail, as expected. `app-writes.test.mjs` replays writes exactly as `js/store.js` makes them (assign, atomic move, 21-party import transaction, Finalize/Unlock, Access).
+Status on 2026-10-05 (Claude): **executed** with the Temurin JRE 21 already in `~/Dev/infra/toolchain/temurin-jre-21/`. Codex's stricter rules: 14/14 pass; deployed as `firestore.rules` on 2026-10-05. The previous rules passed every app write and access check and failed only the 4 stricter-schema tests. `app-writes.test.mjs` replays writes exactly as `js/store.js` makes them (assign, atomic move, 21-party import transaction, Finalize/Unlock, Access).
 
 Dependencies are isolated here and pinned to the client SDK version. After dependency and JDK setup has been authorized on a test machine:
 
