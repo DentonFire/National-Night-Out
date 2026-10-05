@@ -122,6 +122,7 @@ function wireAuth() {
     const password = $("password").value;
     if (!email || !password) return loginMsg("Enter your email and password");
     if (!isCityEmail(email)) return loginMsg(`Restricted: ${ALLOWED_EMAIL_DOMAIN} email required`);
+    if (!S.store) return loginMsg("Still connecting. Try again in a moment.");
     const btn = $("login-btn");
     btn.disabled = true;
     btn.textContent = "Processing...";
@@ -129,7 +130,7 @@ function wireAuth() {
       if (signUpMode) {
         await S.store.signUp(email, password);
         setSignUpMode(false);
-        loginMsg(`Account created. Open the link sent to ${email}, then sign in. If the link says it expired or was already used, city email security opened it first: you are verified, just sign in.`, true);
+        loginMsg(`Account created. Open the link sent to ${email}, then sign in. If the link says it expired or was already used, city email security probably opened it first: try signing in, and if it asks you to verify, tap Resend.`, true);
       } else {
         await S.store.signIn(email, password);
       }
@@ -156,14 +157,21 @@ function wireAuth() {
     const email = $("email").value.trim().toLowerCase();
     if (!email) { loginMsg("Enter your email above, then tap Forgot Password"); $("email").focus(); return; }
     if (!isCityEmail(email)) return loginMsg(`Must be a ${ALLOWED_EMAIL_DOMAIN} email`);
+    if (!S.store) return loginMsg("Still connecting. Try again in a moment.");
     const btn = $("forgot-btn");
     btn.disabled = true;
     btn.textContent = "Sending...";
+    const sent = `If an account exists for ${email}, a reset link is on its way. Check Junk or Quarantine too.`;
     try {
       await S.store.resetPassword(email);
-      loginMsg(`If an account exists for ${email}, a reset link is on its way. Check Junk or Quarantine too.`, true);
+      loginMsg(sent, true);
     } catch (err) {
-      loginMsg(err.code === "auth/too-many-requests" ? "Too many attempts. Wait a few minutes and try again" : `Error: ${err.code || err.message}`);
+      if (err.code === "auth/user-not-found") loginMsg(sent, true); // never reveal whether an account exists
+      else loginMsg({
+        "auth/too-many-requests": "Too many attempts. Wait a few minutes and try again",
+        "auth/network-request-failed": "No connection. Check your signal and try again",
+        "auth/invalid-email": "That email address isn't valid",
+      }[err.code] || "Couldn't send the reset email. Try again in a minute.");
     } finally {
       btn.disabled = false;
       btn.textContent = "Forgot Password?";
@@ -861,7 +869,7 @@ ${url}
 FIRST TIME? SET UP YOUR ACCOUNT EARLY
 - Open the link and tap "Create Account". Use your @cityofdenton.com email.
 - The verification email comes from noreply@dfd-national-night-out.firebaseapp.com. It can take up to 15 minutes and may land in Junk, so do this well before your first party.
-- If the verification link says it expired or was already used, city email security opened it first. You're verified: just sign in.
+- If the verification link says it expired or was already used, city email security probably opened it first. Try signing in; if it asks you to verify, tap Resend.
 
 HOW TO USE THE MAP
 1. Sign in and pick your unit (E6, M3, T1...). Your phone remembers it.

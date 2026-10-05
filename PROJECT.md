@@ -23,7 +23,7 @@ house style of the other `dentonfire.github.io` tools (Water-Shutoff is the clos
 | GitHub | `denton-fire` | user `DentonFire` | `DentonFire/National-Night-Out` (public) | Public GitHub Pages site. No PII, no party data in the repo |
 | Vercel | — | none | — | Hosted on GitHub Pages |
 | Supabase | — | none | — | Backend is Firebase |
-| Firebase | `simpli-fi` (**OS**) | `hunter.lott@simpli-fi-os.com` | `dfd-national-night-out` (number 556210811085; web app `1:556210811085:web:0a5869373b0bb40995f984`) | Dedicated project, on Hunter's instruction (ADR 0009). Auth (email/password) + Firestore |
+| Firebase | `simpli-fi` (**OS**) | Simpli-FI OS Google account (see `~/Dev/docs/ACCOUNTS.md`) | `dfd-national-night-out` (number 556210811085; web app `1:556210811085:web:0a5869373b0bb40995f984`) | Dedicated project, on Hunter's instruction (ADR 0009). Auth (email/password) + Firestore |
 | Other | public | City of Denton ArcGIS | `2024_Fire_Districts_WFL1` | Fire district polygons, bundled in `data/fire-districts.geojson` |
 
 ## Data handling
@@ -42,7 +42,7 @@ house style of the other `dentonfire.github.io` tools (Water-Shutoff is the clos
 | local demo | http://localhost:5173/?demo=1 | none (in-browser) | — |
 | production | https://dentonfire.github.io/National-Night-Out/ | `dfd-national-night-out` | `main` (GitHub Pages) |
 
-Owner role: `roles/hunter.lott@cityofdenton.com`. Owners grant Command access in the app (lock icon).
+Roles live in Firestore `roles/` (owner + command), never in this public repo. Owners grant Command access in the app (Access button).
 
 ## Running locally
 
