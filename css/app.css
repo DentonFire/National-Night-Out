@@ -173,6 +173,7 @@ dialog.modal::backdrop { background: rgba(21, 42, 64, .7); backdrop-filter: blur
 .pick:hover { box-shadow: 0 0 0 2px var(--yellow); }
 .pick:active { transform: scale(.96); }
 .my-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 10px 4px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.08); }
+[data-change-unit] { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; padding-inline: 8px; }
 .sec { padding: 18px 16px 8px; color: #fff; font-weight: 900; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
 .stop-card { margin: 0 10px 8px; padding: 12px; border-radius: 14px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.08); cursor: pointer; transition: background .15s; }
 .stop-card:hover { background: rgba(255,255,255,.12); }
