@@ -203,7 +203,15 @@ function handleAuth({ user, unverified, role }) {
     $("verify-target").textContent = user.email;
     $("verify-modal").classList.remove("hidden");
     verifyTimer = setInterval(async () => {
-      if (await S.store.reloadUser()) { clearInterval(verifyTimer); location.reload(); }
+      try {
+        if (await S.store.reloadUser()) { clearInterval(verifyTimer); location.reload(); }
+      } catch (err) {
+        // A lost signal must not stop verification polling or leave an unhandled rejection.
+        if (err.code !== "auth/network-request-failed") {
+          clearInterval(verifyTimer);
+          toast("Couldn't check verification. Sign out and sign in again.", true);
+        }
+      }
     }, 3000);
     return;
   }

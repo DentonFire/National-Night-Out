@@ -67,7 +67,15 @@ export async function firebaseStore() {
     resetPassword: email =>
       A.sendPasswordResetEmail(auth, email.trim().toLowerCase(), { url: location.href.split("?")[0] }),
     resendVerification: () => A.sendEmailVerification(auth.currentUser, { url: location.href.split("?")[0] }),
-    reloadUser: async () => { await auth.currentUser?.reload(); return auth.currentUser?.emailVerified; },
+    reloadUser: async () => {
+      const user = auth.currentUser;
+      if (!user) return false;
+      await user.reload();
+      if (!user.emailVerified || auth.currentUser !== user) return false;
+      // reload() updates the user record, not the cached token used by Firestore rules.
+      await user.getIdToken(true);
+      return auth.currentUser === user;
+    },
     signOut: () => A.signOut(auth),
 
     subscribeParties(cb, onError) {
