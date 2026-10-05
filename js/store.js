@@ -116,24 +116,31 @@ export async function firebaseStore() {
     // Upsert from the spreadsheet. Keeps assignments, Mayor flags and hand-moved pins.
     // replace: new year. Drop parties not in the sheet and start every party with no assignments.
     async importParties(list, existing, { replace = false } = {}) {
-      const batch = F.writeBatch(db);
-      if (replace) {
-        const keep = new Set(list.map(p => p.id));
-        for (const id of existing.keys()) if (!keep.has(id)) batch.delete(F.doc(db, "parties", id));
-        existing = new Map();
+      const ids = list.map(p => p.id);
+      if (ids.some(id => !id) || new Set(ids).size !== ids.length) {
+        throw new Error("Party names must have unique, non-empty IDs. Check duplicate names before importing.");
       }
-      for (const p of list) {
-        const prev = existing.get(p.id);
-        const keepPin = prev?.pinMoved;
-        batch.set(F.doc(db, "parties", p.id), {
-          ...p,
-          ...(keepPin ? { lat: prev.lat, lng: prev.lng, fireDistrict: prev.fireDistrict, pinMoved: true } : {}),
-          units: prev?.units || [],
-          mayor: Boolean(prev?.mayor || p.mayor),
-          ...stamp(),
+      // Read assignments inside the transaction so a concurrent chief's changes cause a retry.
+      // The import preview's existing map may already be stale by the time Import is tapped.
+      await F.runTransaction(db, async tx => {
+        const refs = list.map(p => F.doc(db, "parties", p.id));
+        const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
+        if (replace) {
+          const keep = new Set(ids);
+          for (const id of existing.keys()) if (!keep.has(id)) tx.delete(F.doc(db, "parties", id));
+        }
+        list.forEach((p, i) => {
+          const prev = !replace && snapshots[i].exists() ? snapshots[i].data() : null;
+          const keepPin = prev?.pinMoved;
+          tx.set(refs[i], {
+            ...p,
+            ...(keepPin ? { lat: prev.lat, lng: prev.lng, fireDistrict: prev.fireDistrict, pinMoved: true } : {}),
+            units: prev?.units || [],
+            mayor: Boolean(prev?.mayor || p.mayor),
+            ...stamp(),
+          });
         });
-      }
-      await batch.commit();
+      });
     },
 
     listRoles: async () => (await F.getDocs(F.collection(db, "roles"))).docs.map(d => ({ email: d.id, ...d.data() })),
@@ -222,6 +229,11 @@ export function demoStore(initialRole = "command") {
       eventListeners.forEach(cb => cb({ ...event }));
     },
     async importParties(list, existing, { replace = false } = {}) {
+      const ids = list.map(p => p.id);
+      if (ids.some(id => !id) || new Set(ids).size !== ids.length) {
+        throw new Error("Party names must have unique, non-empty IDs. Check duplicate names before importing.");
+      }
+      existing = new Map(parties.map(p => [p.id, p]));
       if (replace) {
         const keep = new Set(list.map(p => p.id));
         parties = parties.filter(p => keep.has(p.id));

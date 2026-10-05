@@ -106,3 +106,26 @@ test('party and lock listeners include metadata-only changes and preserve canoni
   assert.equal(party.m.fromCache, true); assert.equal(party.m.hasPendingWrites, true);
   assert.equal(event.m.fromCache, true); assert.equal(event.m.hasPendingWrites, false);
 });
+
+
+test('updated imports preserve current server assignments and pins, not the stale preview', async () => {
+  let writes = [], reads = [];
+  const current = { units:['M1'], mayor:true, pinMoved:true, lat:33.3, lng:-97.2, fireDistrict:'1' };
+  const F = {
+    doc: (_, col, id) => id, serverTimestamp: () => 0,
+    writeBatch: () => ({ set:(id,p)=>writes.push([id,p]), delete:()=>{}, commit:async()=>{} }),
+    runTransaction: async (_, callback) => callback({
+      get: async id => { reads.push(id); return { exists:()=>true, data:()=>current }; },
+      set: (id, p) => writes.push([id,p]), delete: () => {},
+    }),
+  };
+  const store = await loadStore({ F }).firebaseStore();
+  const stale = new Map([['synthetic', { units:[], mayor:false }]]);
+  await store.importParties([{id:'synthetic',name:'Synthetic',lat:33.2,lng:-97.1}],stale);
+  assert.equal(reads.length,1); assert.equal(writes.length,1);
+  assert.deepEqual(writes[0][1].units,['M1']);assert.equal(writes[0][1].mayor,true);assert.equal(writes[0][1].lat,33.3);
+  await assert.rejects(store.importParties([{id:'collision'},{id:'collision'}],stale), /unique/);
+  assert.equal(writes.length,1);
+  await store.importParties([{id:'synthetic',name:'Synthetic',mayor:false}],stale,{replace:true});
+  assert.equal(writes[1][1].units.length,0);assert.equal(writes[1][1].mayor,false);
+});
